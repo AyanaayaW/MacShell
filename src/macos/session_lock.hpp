@@ -57,6 +57,7 @@ private:
 	QQmlComponent* mSurfaceComponent = nullptr;
 	QMap<QScreen*, WlSessionLockSurface*> surfaces;
 	bool mLocked = false;
+	bool mSecured = false;
 };
 
 class WlSessionLockSurface: public Reloadable {

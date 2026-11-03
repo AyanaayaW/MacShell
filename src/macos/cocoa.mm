@@ -1,6 +1,7 @@
 #include "cocoa.hpp"
 
 #include <array>
+#include <dlfcn.h>
 
 #import <AppKit/AppKit.h>
 #import <CoreGraphics/CoreGraphics.h>
@@ -117,6 +118,56 @@ void endLockdown() {
 	[state.previouslyFrontmost activateWithOptions:0];
 	state.previouslyFrontmost = nil;
 	state.active = false;
+}
+
+namespace {
+
+void lockWithSystemLockScreen() {
+	using LockScreenFunction = int (*)();
+	void* loginFramework = dlopen("/System/Library/PrivateFrameworks/login.framework/login", RTLD_LAZY);
+	auto lockScreen = loginFramework
+	                    ? reinterpret_cast<LockScreenFunction>(dlsym(loginFramework, "SACLockScreenImmediate"))
+	                    : nullptr;
+	if (lockScreen) lockScreen();
+}
+
+}
+
+void showFallbackLockShield() {
+	static NSMutableArray<NSWindow*>* shieldWindows = [NSMutableArray array];
+	if (shieldWindows.count > 0) return;
+
+	beginLockdown();
+	for (NSScreen* screen in NSScreen.screens) {
+		NSWindow* shield = [[NSWindow alloc] initWithContentRect:screen.frame
+		                                               styleMask:NSWindowStyleMaskBorderless
+		                                                 backing:NSBackingStoreBuffered
+		                                                   defer:NO];
+		shield.backgroundColor = NSColor.blackColor;
+		shield.releasedWhenClosed = NO;
+		shield.level = CGShieldingWindowLevel();
+		shield.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces
+		                          | NSWindowCollectionBehaviorStationary
+		                          | NSWindowCollectionBehaviorFullScreenAuxiliary;
+		[shield setFrame:screen.frame display:YES];
+		[shield orderFrontRegardless];
+		[shieldWindows addObject:shield];
+	}
+
+	__block id unlockObserver = nil;
+	unlockObserver = [NSDistributedNotificationCenter.defaultCenter
+	    addObserverForName:@"com.apple.screenIsUnlocked"
+	                object:nil
+	                 queue:NSOperationQueue.mainQueue
+	            usingBlock:^(NSNotification*) {
+		            for (NSWindow* shield in shieldWindows) [shield orderOut:nil];
+		            [shieldWindows removeAllObjects];
+		            endLockdown();
+		            [NSDistributedNotificationCenter.defaultCenter removeObserver:unlockObserver];
+		            unlockObserver = nil;
+	            }];
+
+	lockWithSystemLockScreen();
 }
 
 bool isLockdownActive() {

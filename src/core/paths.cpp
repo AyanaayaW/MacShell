@@ -1,4 +1,6 @@
 #include "paths.hpp"
+#include <array>
+#include <climits>
 #include <cerrno>
 #include <cstdio>
 #include <tuple>
@@ -60,15 +62,25 @@ QString QsPaths::ipcPath(const QString& id) {
 	return QDir(QsPaths::basePath(id)).filePath("ipc.sock");
 }
 
+QString QsPaths::defaultRuntimeDirectory() {
+#ifdef __APPLE__
+	std::array<char, PATH_MAX> userTemporaryDirectory {};
+	if (confstr(_CS_DARWIN_USER_TEMP_DIR, userTemporaryDirectory.data(), userTemporaryDirectory.size()) > 0) {
+		auto directory = QString::fromUtf8(userTemporaryDirectory.data());
+		while (directory.endsWith(u'/')) directory.chop(1);
+		return directory;
+	}
+	return QDir::homePath() + QStringLiteral("/Library/Caches/MacShell");
+#else
+	return QString("/run/user/%1").arg(getuid());
+#endif
+}
+
 QDir* QsPaths::baseRunDir() {
 	if (this->baseRunState == DirState::Unknown) {
 		auto runtimeDir = qEnvironmentVariable("XDG_RUNTIME_DIR");
 		if (runtimeDir.isEmpty()) {
-#ifdef __APPLE__
-			runtimeDir = QString("/tmp/qs-%1").arg(getuid());
-#else
-			runtimeDir = QString("/run/user/%1").arg(getuid());
-#endif
+			runtimeDir = QsPaths::defaultRuntimeDirectory();
 			qCInfo(logPaths) << "XDG_RUNTIME_DIR was not set, defaulting to" << runtimeDir;
 		}
 

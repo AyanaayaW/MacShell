@@ -187,6 +187,14 @@ PamIpcExitCode PamSubprocess::exec(const char* configDir, const char* config, co
 
 	pam_handle_t* handle = nullptr;
 
+#ifdef __APPLE__
+	if (std::strcmp(configDir, "/etc/pam.d") != 0 && std::strcmp(configDir, "/etc/pam.d/") != 0) {
+		logIf(true) << "Custom PAM config directories are not supported on macOS; refusing to authenticate "
+		               "against \"" << configDir << "\"." << std::endl;
+		return PamIpcExitCode::StartFailed;
+	}
+#endif
+
 	logIf(this->log) << "Starting pam session for user \"" << user << "\" with config \"" << config
 	                 << "\" in dir \"" << configDir << "\"" << std::endl;
 

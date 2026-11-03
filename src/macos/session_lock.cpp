@@ -22,8 +22,9 @@ Q_LOGGING_CATEGORY(logSessionLock, "quickshell.wayland.sessionlock.macos", QtWar
 
 WlSessionLock::~WlSessionLock() {
 	if (this->mLocked) {
-		qCCritical(logSessionLock) << "Session lock object was destroyed without unlocking. The lock stays "
-		                              "active until MacShell exits.";
+		qCCritical(logSessionLock) << "Session lock object was destroyed without unlocking. The screen stays "
+		                              "locked until MacShell exits.";
+		qs::macos::showFallbackLockShield();
 	}
 }
 
@@ -37,6 +38,7 @@ void WlSessionLock::onReload(QObject* oldInstance) {
 	auto* old = qobject_cast<WlSessionLock*>(oldInstance);
 	if (old && old->mLocked) {
 		this->mLocked = true;
+		this->mSecured = old->mSecured;
 		this->lock(old);
 		old->surfaces.clear();
 		old->mLocked = false;
@@ -74,6 +76,7 @@ void WlSessionLock::lock(WlSessionLock* oldInstance) {
 
 	if (!this->updateSurfaces(oldInstance)) return;
 	for (auto* surface: this->surfaces) surface->show();
+	this->mSecured = true;
 
 	emit this->lockStateChanged();
 	emit this->secureStateChanged();
@@ -85,6 +88,7 @@ void WlSessionLock::unlock() {
 
 	auto wasLocked = this->mLocked;
 	this->mLocked = false;
+	this->mSecured = false;
 	qs::macos::endLockdown();
 
 	if (wasLocked) {
@@ -111,9 +115,14 @@ bool WlSessionLock::updateSurfaces(WlSessionLock* oldInstance) {
 		auto* createdObject = this->mSurfaceComponent->create(QQmlEngine::contextForObject(this->mSurfaceComponent));
 		auto* surface = qobject_cast<WlSessionLockSurface*>(createdObject);
 		if (surface == nullptr) {
-			qCWarning(logSessionLock) << "WlSessionLock.surface does not create a WlSessionLockSurface. Aborting lock.";
 			if (createdObject != nullptr) createdObject->deleteLater();
-			this->unlock();
+			if (this->mSecured) {
+				qCCritical(logSessionLock) << "WlSessionLock.surface failed while locked. Keeping the screen locked.";
+				qs::macos::showFallbackLockShield();
+			} else {
+				qCWarning(logSessionLock) << "WlSessionLock.surface does not create a WlSessionLockSurface. Aborting lock.";
+				this->unlock();
+			}
 			return false;
 		}
 

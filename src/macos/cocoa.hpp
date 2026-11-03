@@ -13,6 +13,7 @@ void removeBackgroundBlur(WId viewHandle);
 void beginLockdown();
 void endLockdown();
 bool isLockdownActive();
+void showFallbackLockShield();
 void setAccessoryApp();
 void hideSystemUi();
 void restoreSystemUi();

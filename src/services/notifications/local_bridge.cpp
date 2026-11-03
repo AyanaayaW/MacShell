@@ -16,6 +16,7 @@
 #include <qstringlist.h>
 #include <qvariant.h>
 
+#include "../../core/paths.hpp"
 #include "notification.hpp"
 #include "server.hpp"
 
@@ -64,6 +65,7 @@ LocalNotificationBridge::LocalNotificationBridge(QObject* parent)
 	QDir().mkpath(QFileInfo(path).absolutePath());
 	QLocalServer::removeServer(path);
 
+	this->mServer->setSocketOptions(QLocalServer::UserAccessOption);
 	QObject::connect(this->mServer, &QLocalServer::newConnection, this, &LocalNotificationBridge::acceptConnection);
 	if (!this->mServer->listen(path)) {
 		qWarning() << "Could not start the notify-send bridge at" << path;
@@ -71,11 +73,21 @@ LocalNotificationBridge::LocalNotificationBridge(QObject* parent)
 }
 
 QString LocalNotificationBridge::socketPath() {
-	return QStringLiteral("/tmp/qs-%1/notify.sock").arg(getuid());
+	return QDir(QsPaths::defaultRuntimeDirectory()).filePath(QStringLiteral("quickshell/notify.sock"));
 }
 
 void LocalNotificationBridge::acceptConnection() {
 	while (auto* socket = this->mServer->nextPendingConnection()) {
+		uid_t peerUserId = 0;
+		gid_t peerGroupId = 0;
+		if (getpeereid(static_cast<int>(socket->socketDescriptor()), &peerUserId, &peerGroupId) != 0
+		    || peerUserId != getuid())
+		{
+			socket->abort();
+			socket->deleteLater();
+			continue;
+		}
+
 		QObject::connect(socket, &QLocalSocket::disconnected, socket, &QObject::deleteLater);
 		QObject::connect(socket, &QLocalSocket::readyRead, socket, [socket]() {
 			if (!socket->canReadLine()) return;

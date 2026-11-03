@@ -20,6 +20,7 @@ QDataStream& operator>>(QDataStream& stream, InstanceLockInfo& info);
 class QsPaths {
 public:
 	static QsPaths* instance();
+	static QString defaultRuntimeDirectory();
 	static void init(
 	    QString shellId,
 	    QString pathId,
