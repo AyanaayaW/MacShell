@@ -355,6 +355,10 @@ void DesktopEntryScanner::run() {
 	const auto& desktopPaths = DesktopEntryManager::desktopPaths();
 	auto scanResults = QList<ParsedDesktopEntryData>();
 
+	if (const auto& platformScanner = DesktopEntryManager::platformEntryScanner()) {
+		scanResults.append(platformScanner());
+	}
+
 	for (const auto& path: desktopPaths | std::views::reverse) {
 		auto file = QFileInfo(path);
 		if (!file.isDir()) continue;
@@ -428,6 +432,23 @@ void DesktopEntryManager::scanDesktopEntries() {
 	this->scanQueued = false;
 	auto* scanner = new DesktopEntryScanner(this);
 	QThreadPool::globalInstance()->start(scanner);
+}
+
+namespace {
+
+DesktopEntryManager::PlatformEntryScanner& mutablePlatformEntryScanner() {
+	static DesktopEntryManager::PlatformEntryScanner scanner;
+	return scanner;
+}
+
+}
+
+void DesktopEntryManager::setPlatformEntryScanner(PlatformEntryScanner scanner) {
+	mutablePlatformEntryScanner() = std::move(scanner);
+}
+
+const DesktopEntryManager::PlatformEntryScanner& DesktopEntryManager::platformEntryScanner() {
+	return mutablePlatformEntryScanner();
 }
 
 DesktopEntryManager* DesktopEntryManager::instance() {

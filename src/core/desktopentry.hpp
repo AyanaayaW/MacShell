@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 #include <utility>
 
 #include <qcontainerfwd.h>
@@ -264,11 +266,17 @@ public:
 
 	static const QStringList& desktopPaths();
 
+	using PlatformEntryScanner = std::function<QList<ParsedDesktopEntryData>()>;
+	static void setPlatformEntryScanner(PlatformEntryScanner scanner);
+	static const PlatformEntryScanner& platformEntryScanner();
+
 signals:
 	void applicationsChanged();
 
-private slots:
+public slots:
 	void handleFileChanges();
+
+private slots:
 	void onScanCompleted(const QList<ParsedDesktopEntryData>& scanResults);
 
 private:

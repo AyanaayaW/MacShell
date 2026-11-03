@@ -36,6 +36,18 @@
 #include <unistd.h>
 #endif
 
+
+#ifdef __APPLE__
+#include <cstdlib>
+#include <unistd.h>
+static int memfd_create(const char*, unsigned) {
+	char temporaryPath[] = "/tmp/quickshell-memfd-XXXXXX";
+	int fileDescriptor = mkstemp(temporaryPath);
+	if (fileDescriptor != -1) unlink(temporaryPath);
+	return fileDescriptor;
+}
+#endif
+
 #include "instanceinfo.hpp"
 #include "logcat.hpp"
 #include "logging_p.hpp"

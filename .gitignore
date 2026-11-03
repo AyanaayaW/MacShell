@@ -13,3 +13,5 @@
 # direnv
 /.envrc
 /.direnv/
+dist/
+compile_commands.json

@@ -7,11 +7,15 @@
 
 #include <qconfig.h>
 #include <qcontainerfwd.h>
-#include <qcoreapplication.h>
 #include <qcryptographichash.h>
 #include <qdatetime.h>
 #include <qdebug.h>
 #include <qdir.h>
+#ifdef __APPLE__
+#include <CoreFoundation/CoreFoundation.h>
+#include <array>
+#include <climits>
+#endif
 #include <qfileinfo.h>
 #include <qjsonarray.h>
 #include <qjsondocument.h>
@@ -59,6 +63,26 @@ QList<QString> configBaseDirs() {
 
 	return configDirs;
 }
+
+#ifdef __APPLE__
+QString bundledDefaultConfig() {
+	CFURLRef resourcesUrl = CFBundleCopyResourcesDirectoryURL(CFBundleGetMainBundle());
+	if (!resourcesUrl) return {};
+
+	std::array<char, PATH_MAX> resourcesPath {};
+	auto resolved = CFURLGetFileSystemRepresentation(
+	    resourcesUrl,
+	    true,
+	    reinterpret_cast<UInt8*>(resourcesPath.data()),
+	    static_cast<CFIndex>(resourcesPath.size())
+	);
+	CFRelease(resourcesUrl);
+	if (!resolved) return {};
+
+	auto configPath = QDir(QString::fromUtf8(resourcesPath.data())).filePath(QStringLiteral("default-config/shell.qml"));
+	return QFileInfo(configPath).isFile() ? QFileInfo(configPath).canonicalFilePath() : QString();
+}
+#endif
 
 QString locateNamedConfig(const QString& name) {
 	for (const auto& baseDir: configBaseDirs()) {
@@ -126,6 +150,10 @@ int locateConfigFile(CommandState& cmd, QString& path) {
 		} else {
 			const auto& name = cmd.config.name->isEmpty() ? "default" : *cmd.config.name;
 			path = locateNamedConfig(name);
+
+#ifdef __APPLE__
+			if (path.isEmpty() && name == "default") path = bundledDefaultConfig();
+#endif
 
 			if (path.isEmpty()) {
 				if (name == "default") {

@@ -1,5 +1,7 @@
 #include "iconimageprovider.hpp"
 #include <algorithm>
+#include <functional>
+#include <utility>
 
 #include <qcolor.h>
 #include <qicon.h>
@@ -30,8 +32,8 @@ IconImageProvider::requestPixmap(const QString& id, QSize* size, const QSize& re
 		}
 	}
 
-	auto icon = QIcon::fromTheme(iconName);
-	if (icon.isNull() && !fallbackName.isEmpty()) icon = QIcon::fromTheme(fallbackName);
+	auto icon = IconImageProvider::themeIcon(iconName);
+	if (icon.isNull() && !fallbackName.isEmpty()) icon = IconImageProvider::themeIcon(fallbackName);
 	if (icon.isNull() && !path.isEmpty()) icon = QPixmap(path);
 
 	auto targetSize = requestedSize.isValid() ? requestedSize : QSize(100, 100);
@@ -45,6 +47,29 @@ IconImageProvider::requestPixmap(const QString& id, QSize* size, const QSize& re
 
 	if (size != nullptr) *size = pixmap.size();
 	return pixmap;
+}
+
+namespace {
+
+std::function<QIcon(const QString&)>& platformIconResolver() {
+	static std::function<QIcon(const QString&)> resolver;
+	return resolver;
+}
+
+}
+
+QIcon IconImageProvider::themeIcon(const QString& name) {
+	auto icon = QIcon::fromTheme(name);
+	if (icon.isNull() && platformIconResolver()) icon = platformIconResolver()(name);
+	return icon;
+}
+
+bool IconImageProvider::hasThemeIcon(const QString& name) {
+	return !IconImageProvider::themeIcon(name).isNull();
+}
+
+void IconImageProvider::setPlatformIconResolver(std::function<QIcon(const QString&)> resolver) {
+	platformIconResolver() = std::move(resolver);
 }
 
 QPixmap IconImageProvider::missingPixmap(const QSize& size) {
