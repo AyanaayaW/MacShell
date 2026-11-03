@@ -1,0 +1,21 @@
+import QtQml
+import QtQml.Models
+import QtCore
+import QtQuick
+import QtQuick.Window
+import QtQuick.Controls
+import QtQuick.Controls.Basic
+import QtQuick.Controls.Fusion
+import QtQuick.Controls.Material
+import QtQuick.Templates
+import QtQuick.Layouts
+import QtQuick.Effects
+import QtQuick.Shapes
+import QtQuick.Particles
+import QtQuick.VectorImage
+import QtQuick.Dialogs
+import Qt5Compat.GraphicalEffects
+import Qt.labs.folderlistmodel
+import Qt.labs.platform
+
+Item {}

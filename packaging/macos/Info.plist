@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key><string>MacShell</string>
+	<key>CFBundleDisplayName</key><string>MacShell</string>
+	<key>CFBundleIdentifier</key><string>com.ayanaayaw.macshell</string>
+	<key>CFBundleExecutable</key><string>quickshell</string>
+	<key>CFBundlePackageType</key><string>APPL</string>
+	<key>CFBundleShortVersionString</key><string>@VERSION@</string>
+	<key>CFBundleVersion</key><string>@VERSION@</string>
+	<key>LSMinimumSystemVersion</key><string>13.0</string>
+	<key>LSUIElement</key><true/>
+	<key>NSHighResolutionCapable</key><true/>
+	<key>NSBluetoothAlwaysUsageDescription</key><string>MacShell shows and manages your Bluetooth devices in your shell.</string>
+	<key>NSAudioCaptureUsageDescription</key><string>MacShell measures audio levels so your shell can show volume meters and visualizers.</string>
+	<key>NSMicrophoneUsageDescription</key><string>MacShell measures microphone levels so your shell can show input meters.</string>
+	<key>NSAppleEventsUsageDescription</key><string>MacShell reads what Spotify and Music are playing so your shell can show and control it.</string>
+	<key>NSLocationUsageDescription</key><string>macOS only reveals Wi-Fi network names to apps with location access. MacShell uses it to list nearby networks.</string>
+	<key>NSLocationWhenInUseUsageDescription</key><string>macOS only reveals Wi-Fi network names to apps with location access. MacShell uses it to list nearby networks.</string>
+</dict>
+</plist>
