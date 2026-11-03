@@ -29,3 +29,9 @@ private:
 	bool log;
 	PamIpcPipes pipes;
 };
+
+#ifdef __APPLE__
+#include <optional>
+
+std::optional<int> runPamHelperIfRequested(int argc, char** argv);
+#endif

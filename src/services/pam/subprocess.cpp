@@ -7,7 +7,7 @@
 #include <qloggingcategory.h>
 #include <qstring.h>
 #include <sched.h>
-#ifdef __FreeBSD__
+#if defined(__FreeBSD__) || defined(__APPLE__)
 #include <security/pam_types.h>
 #else
 #include <security/_pam_types.h>
@@ -17,6 +17,95 @@
 
 #include "conversation.hpp"
 #include "ipc.hpp"
+
+#ifdef __APPLE__
+#include <crt_externs.h>
+#include <cstdlib>
+#include <cstring>
+#include <mach-o/dyld.h>
+#include <spawn.h>
+
+#include <string>
+#include <vector>
+
+namespace {
+
+constexpr auto PAM_HELPER_FLAG = "--macshell-pam-helper";
+constexpr int PAM_HELPER_ARGUMENT_COUNT = 8;
+
+std::string currentExecutablePath() {
+	uint32_t pathLength = 0;
+	_NSGetExecutablePath(nullptr, &pathLength);
+	std::string path(pathLength, '\0');
+	if (_NSGetExecutablePath(path.data(), &pathLength) != 0) return {};
+	path.resize(std::strlen(path.c_str()));
+	return path;
+}
+
+}
+
+pid_t spawnPamHelper(
+    int helperInput,
+    int helperOutput,
+    bool log,
+    const char* configDir,
+    const char* config,
+    const char* user
+) {
+	auto executablePath = currentExecutablePath();
+	auto inputArgument = std::to_string(helperInput);
+	auto outputArgument = std::to_string(helperOutput);
+	std::string logArgument = log ? "1" : "0";
+
+	std::vector<char*> arguments {
+	    executablePath.data(),
+	    const_cast<char*>(PAM_HELPER_FLAG),
+	    inputArgument.data(),
+	    outputArgument.data(),
+	    logArgument.data(),
+	    const_cast<char*>(configDir),
+	    const_cast<char*>(config),
+	    const_cast<char*>(user),
+	    nullptr,
+	};
+
+	posix_spawn_file_actions_t fileActions;
+	posix_spawn_file_actions_init(&fileActions);
+	posix_spawn_file_actions_addinherit_np(&fileActions, helperInput);
+	posix_spawn_file_actions_addinherit_np(&fileActions, helperOutput);
+	posix_spawn_file_actions_addinherit_np(&fileActions, STDOUT_FILENO);
+	posix_spawn_file_actions_addinherit_np(&fileActions, STDERR_FILENO);
+
+	posix_spawnattr_t attributes;
+	posix_spawnattr_init(&attributes);
+	posix_spawnattr_setflags(&attributes, POSIX_SPAWN_CLOEXEC_DEFAULT);
+
+	pid_t pid = -1;
+	auto result = posix_spawn(&pid, executablePath.c_str(), &fileActions, &attributes, arguments.data(), *_NSGetEnviron());
+
+	posix_spawnattr_destroy(&attributes);
+	posix_spawn_file_actions_destroy(&fileActions);
+
+	if (result != 0) {
+		qCDebug(logPam) << "Failed to spawn PAM helper process.";
+		return -1;
+	}
+	return pid;
+}
+
+std::optional<int> runPamHelperIfRequested(int argc, char** argv) {
+	if (argc != PAM_HELPER_ARGUMENT_COUNT || std::strcmp(argv[1], PAM_HELPER_FLAG) != 0) return std::nullopt;
+
+	auto helperInput = std::atoi(argv[2]);
+	auto helperOutput = std::atoi(argv[3]);
+	auto log = std::strcmp(argv[4], "1") == 0;
+
+	auto subprocess = PamSubprocess(log, helperInput, helperOutput);
+	auto code = subprocess.exec(argv[5], argv[6], argv[7]);
+	subprocess.sendCode(code);
+	return 0;
+}
+#endif
 
 pid_t PamConversation::createSubprocess(
     PamIpcPipes* pipes,
@@ -37,13 +126,17 @@ pid_t PamConversation::createSubprocess(
 	auto* userF = strdup(user.toStdString().c_str());           // NOLINT (include)
 	auto log = logPam().isDebugEnabled();
 
+#ifdef __APPLE__
+	auto pid = spawnPamHelper(toSubprocess[0], fromSubprocess[1], log, configDirF, configF, userF);
+	if (pid > 0) {
+#else
 	auto pid = fork();
 
 	if (pid < 0) {
 		qCDebug(logPam) << "Failed to fork for subprocess.";
 	} else if (pid == 0) {
-		close(toSubprocess[1]);   // close w
-		close(fromSubprocess[0]); // close r
+		close(toSubprocess[1]);
+		close(fromSubprocess[0]);
 
 		{
 			auto subprocess = PamSubprocess(log, toSubprocess[0], fromSubprocess[1]);
@@ -55,9 +148,9 @@ pid_t PamConversation::createSubprocess(
 		free(configF);    // NOLINT
 		free(userF);      // NOLINT
 
-		// do not do cleanup that may affect the parent
 		_exit(0);
 	} else {
+#endif
 		close(toSubprocess[0]);   // close r
 		close(fromSubprocess[1]); // close w
 
@@ -70,6 +163,16 @@ pid_t PamConversation::createSubprocess(
 
 		return pid;
 	}
+
+#ifdef __APPLE__
+	close(toSubprocess[0]);
+	close(toSubprocess[1]);
+	close(fromSubprocess[0]);
+	close(fromSubprocess[1]);
+	free(configDirF);
+	free(configF);
+	free(userF);
+#endif
 
 	return -1; // should never happen but lint
 }
@@ -87,7 +190,7 @@ PamIpcExitCode PamSubprocess::exec(const char* configDir, const char* config, co
 	logIf(this->log) << "Starting pam session for user \"" << user << "\" with config \"" << config
 	                 << "\" in dir \"" << configDir << "\"" << std::endl;
 
-#ifdef __FreeBSD__
+#if defined(__FreeBSD__) || defined(__APPLE__)
 	auto result = pam_start(config, user, &conv, &handle);
 #else
 	auto result = pam_start_confdir(config, user, &conv, configDir, &handle);

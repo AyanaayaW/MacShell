@@ -9,7 +9,11 @@
 
 #include "../core/logcat.hpp"
 #include "enums.hpp"
+#ifdef __APPLE__
+#include "../macos/network/nm_settings.hpp"
+#else
 #include "nm/settings.hpp"
+#endif
 
 namespace qs::network {
 

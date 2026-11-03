@@ -8,7 +8,7 @@
 #include <qtmetamacros.h>
 #include <sys/signal.h>
 #include <sys/wait.h>
-#ifdef __FreeBSD__
+#if defined(__FreeBSD__) || defined(__APPLE__)
 #include <signal.h>
 #endif
 

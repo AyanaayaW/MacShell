@@ -1,4 +1,8 @@
 #include "server.hpp"
+
+#ifdef __APPLE__
+#include "local_bridge.hpp"
+#endif
 #include <functional>
 
 #include <qcontainerfwd.h>
@@ -29,6 +33,11 @@ NotificationServer::NotificationServer() {
 	qDBusRegisterMetaType<DBusNotificationImage>();
 
 	new DBusNotificationServer(this);
+
+#ifdef __APPLE__
+	new LocalNotificationBridge(this);
+	return;
+#endif
 
 	qCInfo(logNotifications) << "Starting notification server";
 

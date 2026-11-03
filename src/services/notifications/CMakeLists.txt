@@ -14,6 +14,11 @@ qt_add_library(quickshell-service-notifications STATIC
 	${DBUS_INTERFACES}
 )
 
+if (APPLE)
+	target_sources(quickshell-service-notifications PRIVATE local_bridge.cpp)
+	target_link_libraries(quickshell-service-notifications PRIVATE Qt::Network)
+endif()
+
 # dbus headers
 target_include_directories(quickshell-service-notifications PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 

@@ -10,24 +10,36 @@
 #include "../core/logcat.hpp"
 #include "device.hpp"
 #include "enums.hpp"
+#ifdef __APPLE__
+#include "../macos/network/corewlan_backend.hpp"
+#else
 #include "nm/backend.hpp"
+#endif
 
 namespace qs::network {
 
 namespace {
 QS_LOGGING_CATEGORY(logNetwork, "quickshell.network", QtWarningMsg);
+
+#ifdef __APPLE__
+using PlatformNetworkBackend = CoreWlanBackend;
+constexpr auto PLATFORM_BACKEND_TYPE = NetworkBackendType::CoreWlan;
+#else
+using PlatformNetworkBackend = NetworkManager;
+constexpr auto PLATFORM_BACKEND_TYPE = NetworkBackendType::NetworkManager;
+#endif
 } // namespace
 
 Networking::Networking(QObject* parent): QObject(parent) {
 	// Try to create the NetworkManager backend and bind to it.
-	auto* nm = new NetworkManager(this);
+	auto* nm = new PlatformNetworkBackend(this);
 	if (nm->isAvailable()) {
 		// clang-format off
-		QObject::connect(nm, &NetworkManager::deviceAdded, this, &Networking::deviceAdded);
-		QObject::connect(nm, &NetworkManager::deviceRemoved, this, &Networking::deviceRemoved);
-		QObject::connect(this, &Networking::requestSetWifiEnabled, nm, &NetworkManager::setWifiEnabled);
-		QObject::connect(this, &Networking::requestSetConnectivityCheckEnabled, nm, &NetworkManager::setConnectivityCheckEnabled);
-		QObject::connect(this, &Networking::requestCheckConnectivity, nm, &NetworkManager::checkConnectivity);
+		QObject::connect(nm, &PlatformNetworkBackend::deviceAdded, this, &Networking::deviceAdded);
+		QObject::connect(nm, &PlatformNetworkBackend::deviceRemoved, this, &Networking::deviceRemoved);
+		QObject::connect(this, &Networking::requestSetWifiEnabled, nm, &PlatformNetworkBackend::setWifiEnabled);
+		QObject::connect(this, &Networking::requestSetConnectivityCheckEnabled, nm, &PlatformNetworkBackend::setConnectivityCheckEnabled);
+		QObject::connect(this, &Networking::requestCheckConnectivity, nm, &PlatformNetworkBackend::checkConnectivity);
 		this->bindableWifiEnabled().setBinding([nm]() { return nm->wifiEnabled(); });
 		this->bindableWifiHardwareEnabled().setBinding([nm]() { return nm->wifiHardwareEnabled(); });
 		this->bindableCanCheckConnectivity().setBinding([nm]() { return nm->connectivityCheckAvailable(); });
@@ -36,7 +48,7 @@ Networking::Networking(QObject* parent): QObject(parent) {
 		// clang-format on
 
 		this->mBackend = nm;
-		this->mBackendType = NetworkBackendType::NetworkManager;
+		this->mBackendType = PLATFORM_BACKEND_TYPE;
 		return;
 	} else {
 		delete nm;
