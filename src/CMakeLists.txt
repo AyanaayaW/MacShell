@@ -42,3 +42,8 @@ endif()
 if (NETWORK)
 	add_subdirectory(network)
 endif()
+
+if (APPLE)
+	enable_language(OBJCXX)
+	add_subdirectory(macos)
+endif()
