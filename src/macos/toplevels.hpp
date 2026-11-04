@@ -15,6 +15,7 @@
 
 #include "../core/model.hpp"
 #include "../core/qmlscreen.hpp"
+#include "background_reader.hpp"
 #include "toplevels_backend.hpp"
 
 namespace qs::wayland::toplevel {
@@ -97,11 +98,13 @@ private:
 	ToplevelManager();
 
 	void refresh();
+	void applyNativeWindows(const QList<qs::macos::NativeWindow>& windows, quint32 focusedWindowId);
 
 	ObjectModel<Toplevel> mToplevels {this};
 	QHash<quint32, Toplevel*> mToplevelsByWindow;
 	QPointer<Toplevel> mActiveToplevel;
 	QTimer mPollTimer;
+	qs::macos::CoalescingBackgroundReader mReader {"MacShell.Toplevels"};
 	QTimer mRefreshDebounce;
 };
 

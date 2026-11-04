@@ -371,8 +371,16 @@ HyprlandWorkspace* HyprlandState::workspaceForSpace(quint64 spaceId) const {
 }
 
 void HyprlandState::refreshToplevels() {
-	auto windows = macos::readWindows();
-	auto frontWindowId = macos::frontmostWindowId();
+	this->mToplevelReader.request(
+	    this,
+	    [] { return std::pair(macos::readWindows(), macos::frontmostWindowId()); },
+	    [this](const std::pair<QList<macos::WindowDescription>, quint32>& snapshot) {
+		    this->applyToplevels(snapshot.first, snapshot.second);
+	    }
+	);
+}
+
+void HyprlandState::applyToplevels(const QList<macos::WindowDescription>& windows, quint32 frontWindowId) {
 	auto* previousActiveToplevel = this->bActiveToplevel.value();
 
 	QList<HyprlandToplevel*> currentToplevels;

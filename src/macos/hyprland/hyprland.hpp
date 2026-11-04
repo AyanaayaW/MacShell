@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../background_reader.hpp"
 #include <memory>
 
 #include <qhash.h>
@@ -240,6 +241,7 @@ public:
 	void refreshMonitors();
 	void refreshWorkspaces();
 	void refreshToplevels();
+	void applyToplevels(const QList<macos::WindowDescription>& windows, quint32 frontWindowId);
 	void dispatch(const QString& request);
 	void activateWorkspace(HyprlandWorkspace* workspace);
 
@@ -278,6 +280,7 @@ private:
 	QHash<qint32, HyprlandWorkspace*> mWorkspacesById;
 	QHash<quint32, HyprlandToplevel*> mToplevelsByWindow;
 	QTimer mToplevelRefreshTimer;
+	qs::macos::CoalescingBackgroundReader mToplevelReader {"MacShell.HyprlandToplevels"};
 	std::unique_ptr<macos::SystemEventObserver> mSystemEvents;
 
 	Q_OBJECT_BINDABLE_PROPERTY(HyprlandState, HyprlandMonitor*, bFocusedMonitor, &HyprlandState::focusedMonitorChanged);

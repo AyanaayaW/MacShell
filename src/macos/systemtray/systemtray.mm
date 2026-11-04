@@ -178,9 +178,15 @@ SystemTrayHost::SystemTrayHost() {
 void SystemTrayHost::scheduleRefresh() { this->mRefreshDebounce.start(); }
 
 void SystemTrayHost::refresh() {
+	this->mReader.request(this, readMenuExtras, [this](const QList<MenuExtraInfo>& extras) {
+		this->applyMenuExtras(extras);
+	});
+}
+
+void SystemTrayHost::applyMenuExtras(const QList<MenuExtraInfo>& extras) {
 	QSet<QString> presentIdentifiers;
 
-	for (const auto& info: readMenuExtras()) {
+	for (const auto& info: extras) {
 		presentIdentifiers.insert(info.identifier);
 
 		auto* item = this->mItemsByIdentifier.value(info.identifier);

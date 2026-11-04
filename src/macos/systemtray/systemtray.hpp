@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../background_reader.hpp"
 #include <qhash.h>
 #include <qobject.h>
 #include <qproperty.h>
@@ -124,8 +125,10 @@ private:
 	SystemTrayHost();
 
 	void refresh();
+	void applyMenuExtras(const QList<MenuExtraInfo>& extras);
 
 	ObjectModel<StatusNotifierItem> mItems {this};
+	qs::macos::CoalescingBackgroundReader mReader {"MacShell.SystemTray"};
 	QHash<QString, StatusNotifierItem*> mItemsByIdentifier;
 	QTimer mPollTimer;
 	QTimer mRefreshDebounce;

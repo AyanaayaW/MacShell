@@ -146,8 +146,16 @@ ToplevelManager::ToplevelManager() {
 void ToplevelManager::scheduleRefresh() { this->mRefreshDebounce.start(); }
 
 void ToplevelManager::refresh() {
-	auto windows = macos::readNativeWindows();
-	auto focusedWindowId = macos::focusedWindowId();
+	this->mReader.request(
+	    this,
+	    [] { return std::pair(macos::readNativeWindows(), macos::focusedWindowId()); },
+	    [this](const std::pair<QList<macos::NativeWindow>, quint32>& snapshot) {
+		    this->applyNativeWindows(snapshot.first, snapshot.second);
+	    }
+	);
+}
+
+void ToplevelManager::applyNativeWindows(const QList<macos::NativeWindow>& windows, quint32 focusedWindowId) {
 
 	QSet<quint32> presentWindows;
 	Toplevel* activeToplevel = nullptr;
