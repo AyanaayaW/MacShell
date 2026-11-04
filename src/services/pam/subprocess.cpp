@@ -1,4 +1,7 @@
 #include "subprocess.hpp"
+#include <sstream>
+#include <set>
+#include <fstream>
 #include <array>
 #include <ostream>
 #include <string>
@@ -177,6 +180,47 @@ pid_t PamConversation::createSubprocess(
 	return -1; // should never happen but lint
 }
 
+#ifdef __APPLE__
+namespace {
+
+bool isPlainUnixPasswordPolicy(const char* configDir, const char* config) {
+	std::ifstream policyFile(std::string(configDir) + "/" + config);
+	if (!policyFile) return false;
+
+	static const std::set<std::string> passwordOnlyModules = {
+	    "pam_unix.so",
+	    "pam_faillock.so",
+	    "pam_env.so",
+	    "pam_nologin.so",
+	};
+
+	bool checksUnixPassword = false;
+	std::string line;
+	while (std::getline(policyFile, line)) {
+		std::istringstream fields(line);
+		std::string type;
+		if (!(fields >> type) || type.starts_with('#')) continue;
+		if (type.starts_with('-')) type.erase(0, 1);
+		if (type != "auth") continue;
+
+		std::string control;
+		fields >> control;
+		if (control.starts_with('[')) {
+			while (!control.ends_with(']') && fields >> control) {}
+		}
+
+		std::string module;
+		if (!(fields >> module)) return false;
+		module = module.substr(module.find_last_of('/') + 1);
+		if (!passwordOnlyModules.contains(module)) return false;
+		if (module == "pam_unix.so") checksUnixPassword = true;
+	}
+	return checksUnixPassword;
+}
+
+}
+#endif
+
 PamIpcExitCode PamSubprocess::exec(const char* configDir, const char* config, const char* user) {
 	logIf(this->log) << "Waiting for parent confirmation..." << std::endl;
 
@@ -190,10 +234,14 @@ PamIpcExitCode PamSubprocess::exec(const char* configDir, const char* config, co
 #ifdef __APPLE__
 	auto usesSystemDirectory =
 	    std::strcmp(configDir, "/etc/pam.d") == 0 || std::strcmp(configDir, "/etc/pam.d/") == 0;
+	if (!usesSystemDirectory && !isPlainUnixPasswordPolicy(configDir, config)) {
+		logIf(true) << "PAM config \"" << config << "\" in \"" << configDir
+		            << "\" uses modules macOS cannot provide; refusing to authenticate." << std::endl;
+		return PamIpcExitCode::StartFailed;
+	}
 	if (!usesSystemDirectory || std::strcmp(config, "passwd") == 0) {
 		logIf(true) << "PAM config \"" << config << "\" in \"" << configDir
-		            << "\" cannot verify passwords on macOS; using the system \"login\" service instead."
-		            << std::endl;
+		            << "\" is a password check; verifying with the system \"login\" service." << std::endl;
 		config = "login";
 	}
 #endif

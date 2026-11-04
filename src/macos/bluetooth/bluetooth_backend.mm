@@ -249,13 +249,27 @@ static NSMutableArray<MacShellBluetoothAccessRequest*>* pendingAccessRequests() 
 }
 
 - (void)deviceInquiryDeviceFound:(IOBluetoothDeviceInquiry*)sender device:(IOBluetoothDevice*)device {
-	if (self->deviceFoundHandler) self->deviceFoundHandler(describeDevice(device, {}));
+	auto handler = self->deviceFoundHandler;
+	if (!handler) return;
+	IOBluetoothDevice* foundDevice = device;
+	QMetaObject::invokeMethod(
+	    QCoreApplication::instance(),
+	    [handler, foundDevice] { handler(describeDevice(foundDevice, {})); },
+	    Qt::QueuedConnection
+	);
 }
 
 - (void)deviceInquiryDeviceNameUpdated:(IOBluetoothDeviceInquiry*)sender
                                 device:(IOBluetoothDevice*)device
                       devicesRemaining:(uint32_t)devicesRemaining {
-	if (self->deviceFoundHandler) self->deviceFoundHandler(describeDevice(device, {}));
+	auto handler = self->deviceFoundHandler;
+	if (!handler) return;
+	IOBluetoothDevice* foundDevice = device;
+	QMetaObject::invokeMethod(
+	    QCoreApplication::instance(),
+	    [handler, foundDevice] { handler(describeDevice(foundDevice, {})); },
+	    Qt::QueuedConnection
+	);
 }
 
 - (void)deviceInquiryComplete:(IOBluetoothDeviceInquiry*)sender error:(IOReturn)error aborted:(BOOL)aborted {
@@ -288,7 +302,13 @@ static NSMutableArray<MacShellBluetoothAccessRequest*>* pendingAccessRequests() 
 
 - (void)devicePairingFinished:(id)sender error:(IOReturn)error {
 	auto handler = std::exchange(self->finishedHandler, nullptr);
-	if (handler) handler(error == kIOReturnSuccess);
+	if (!handler) return;
+	auto succeeded = error == kIOReturnSuccess;
+	QMetaObject::invokeMethod(
+	    QCoreApplication::instance(),
+	    [handler, succeeded] { handler(succeeded); },
+	    Qt::QueuedConnection
+	);
 }
 
 @end
@@ -317,13 +337,19 @@ static NSMutableArray<MacShellBluetoothAccessRequest*>* pendingAccessRequests() 
 	IOBluetoothUserNotification* disconnectNotification =
 	    [device registerForDisconnectNotification:self selector:@selector(deviceDisconnected:device:)];
 	if (disconnectNotification) [self.disconnectNotifications addObject:disconnectNotification];
-	if (self->changedHandler) self->changedHandler();
+	[self notifyChanged];
 }
 
 - (void)deviceDisconnected:(IOBluetoothUserNotification*)notification device:(IOBluetoothDevice*)device {
 	[notification unregister];
 	[self.disconnectNotifications removeObject:notification];
-	if (self->changedHandler) self->changedHandler();
+	[self notifyChanged];
+}
+
+- (void)notifyChanged {
+	auto handler = self->changedHandler;
+	if (!handler) return;
+	QMetaObject::invokeMethod(QCoreApplication::instance(), handler, Qt::QueuedConnection);
 }
 
 - (void)stopObserving {
