@@ -22,6 +22,7 @@
 #include "hyprland/global_shortcuts.hpp"
 #include "hyprland/hyprctl.hpp"
 #include "hyprland/keyboard_layouts.hpp"
+#include "font_aliases.hpp"
 #include "icons.hpp"
 #include "input_region.hpp"
 #include "linux_files.hpp"
@@ -80,6 +81,7 @@ class MacPlugin: public QsEnginePlugin {
 
 	void constructGeneration(EngineGeneration& generation) override {
 		generation.engine->addImportPath(QDir::homePath() + "/Library/Application Support/MacShell/qml");
+		qs::macos::aliasConfigFontFamilies(generation.rootPath.absolutePath());
 	}
 
 	void registerTypes() override {

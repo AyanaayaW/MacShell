@@ -200,9 +200,20 @@ QByteArray respondToCommand(const QString& commandLine, bool json) {
 		};
 		return formatted(json, option, QStringLiteral("int: 0\nset: false"));
 	}
-	if (command == QStringLiteral("layers") || command == QStringLiteral("splash")) {
-		return formatted(json, QVariantMap(), QString());
+	if (command == QStringLiteral("layers")) {
+		QVariantMap layersByMonitor;
+		QVariantMap emptyLevels {
+		    {QStringLiteral("0"), QVariantList()},
+		    {QStringLiteral("1"), QVariantList()},
+		    {QStringLiteral("2"), QVariantList()},
+		    {QStringLiteral("3"), QVariantList()},
+		};
+		for (auto* monitor: state->monitors()->valueList()) {
+			layersByMonitor.insert(monitor->bindableName().value(), QVariantMap {{QStringLiteral("levels"), emptyLevels}});
+		}
+		return formatted(json, layersByMonitor, QString());
 	}
+	if (command == QStringLiteral("splash")) return formatted(json, QVariantMap(), QString());
 	if (command == QStringLiteral("binds") || command == QStringLiteral("globalshortcuts")
 	    || command == QStringLiteral("configerrors") || command == QStringLiteral("workspacerules")
 	    || command == QStringLiteral("layouts"))
@@ -390,7 +401,15 @@ int runHyprctl(int argc, char** argv) {
 		auto argument = QString::fromLocal8Bit(argv[index]);
 		if (index == 1 && argument == QStringLiteral("hyprctl")) continue;
 
-		if (commandWords.isEmpty() && argument.startsWith(u'-') && argument.size() > 1) {
+		auto passesArgumentsThrough = !commandWords.isEmpty()
+		                           && (commandWords.first() == QStringLiteral("dispatch")
+		                               || commandWords.first() == QStringLiteral("keyword")
+		                               || commandWords.first() == QStringLiteral("eval"));
+		auto isKnownFlag = argument == QStringLiteral("-j") || argument == QStringLiteral("-r")
+		                || argument == QStringLiteral("-a");
+		if ((commandWords.isEmpty() || (isKnownFlag && !passesArgumentsThrough)) && argument.startsWith(u'-')
+		    && argument.size() > 1)
+		{
 			if (argument == QStringLiteral("-j")) flags += u'j';
 			else if (argument == QStringLiteral("-r")) flags += u'r';
 			else if (argument == QStringLiteral("-a")) flags += u'a';

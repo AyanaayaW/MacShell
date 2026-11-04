@@ -16,6 +16,7 @@ qt_add_library(quickshell-macos STATIC
 	settings.mm
 	linux_files.mm
 	input_region.mm
+	font_aliases.cpp
 )
 
 qt_add_qml_module(quickshell-macos
@@ -49,3 +50,5 @@ add_subdirectory(systemtray)
 add_subdirectory(unavailable)
 add_subdirectory(i3)
 add_subdirectory(compat)
+add_subdirectory(kirigami)
+add_subdirectory(syntaxhighlighting)
