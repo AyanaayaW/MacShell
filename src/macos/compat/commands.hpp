@@ -16,5 +16,9 @@ int runNmcli(int argc, char** argv);
 int runWlCopy(int argc, char** argv);
 int runWlPaste(int argc, char** argv);
 int runXdgOpen(int argc, char** argv);
+int runCliphist(int argc, char** argv);
+int runSwww(int argc, char** argv);
+int runHyprpicker(int argc, char** argv);
+int runGrim(int argc, char** argv);
 
 }

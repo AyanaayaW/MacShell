@@ -6,6 +6,7 @@
 #include <cstring>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <dlfcn.h>
 #include <mach-o/dyld.h>
@@ -16,6 +17,8 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 namespace qs::macos::compat {
+
+int watchClipboard(NSString* requestedMime, const std::vector<std::string>& command);
 
 namespace {
 
@@ -36,6 +39,10 @@ constexpr std::array COMPAT_COMMANDS {
 	NamedCommand {"wl-copy", runWlCopy},
 	NamedCommand {"wl-paste", runWlPaste},
 	NamedCommand {"xdg-open", runXdgOpen},
+	NamedCommand {"cliphist", runCliphist},
+	NamedCommand {"swww", runSwww},
+	NamedCommand {"hyprpicker", runHyprpicker},
+	NamedCommand {"grim", runGrim},
 };
 
 std::string_view programName(const char* path) {
@@ -282,6 +289,9 @@ int runWlPaste(int argc, char** argv) {
 				appendNewline = false;
 			} else if (argument == "-l" || argument == "--list-types") {
 				listTypes = true;
+			} else if (argument == "-w" || argument == "--watch") {
+				std::vector<std::string> watchCommand(argv + index + 1, argv + argc);
+				return watchClipboard(mimeType, watchCommand);
 			}
 		}
 

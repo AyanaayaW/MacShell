@@ -2,6 +2,7 @@ qt_add_library(quickshell-macos-compat STATIC
 	commands.mm
 	devices.mm
 	nmcli.mm
+	tools.mm
 )
 
 target_link_libraries(quickshell-macos-compat PRIVATE
