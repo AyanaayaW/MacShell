@@ -14,6 +14,69 @@ constexpr int BACKGROUND_LAYER = 0;
 constexpr int BOTTOM_LAYER = 1;
 constexpr int TOP_LAYER = 2;
 
+constexpr int OVERLAY_SPACE_ABSOLUTE_LEVEL = 100;
+constexpr int ALL_SPACES_MASK = 7;
+
+struct SkyLightSpaceApi {
+	int (*mainConnection)() = nullptr;
+	uint64_t (*createSpace)(int, int, CFDictionaryRef) = nullptr;
+	void (*setAbsoluteLevel)(int, uint64_t, int) = nullptr;
+	void (*showSpaces)(int, CFArrayRef) = nullptr;
+	void (*addWindows)(int, uint64_t, CFArrayRef, int) = nullptr;
+	void (*removeWindows)(int, CFArrayRef, CFArrayRef) = nullptr;
+
+	[[nodiscard]] bool available() const {
+		return mainConnection && createSpace && setAbsoluteLevel && showSpaces && addWindows && removeWindows;
+	}
+};
+
+const SkyLightSpaceApi& skyLightSpaces() {
+	static const SkyLightSpaceApi api = [] {
+		SkyLightSpaceApi loaded;
+		void* skyLight = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY);
+		if (!skyLight) return loaded;
+		loaded.mainConnection = reinterpret_cast<int (*)()>(dlsym(skyLight, "SLSMainConnectionID"));
+		loaded.createSpace = reinterpret_cast<uint64_t (*)(int, int, CFDictionaryRef)>(dlsym(skyLight, "SLSSpaceCreate"));
+		loaded.setAbsoluteLevel =
+		    reinterpret_cast<void (*)(int, uint64_t, int)>(dlsym(skyLight, "SLSSpaceSetAbsoluteLevel"));
+		loaded.showSpaces = reinterpret_cast<void (*)(int, CFArrayRef)>(dlsym(skyLight, "SLSShowSpaces"));
+		loaded.addWindows = reinterpret_cast<void (*)(int, uint64_t, CFArrayRef, int)>(
+		    dlsym(skyLight, "SLSSpaceAddWindowsAndRemoveFromSpaces")
+		);
+		loaded.removeWindows =
+		    reinterpret_cast<void (*)(int, CFArrayRef, CFArrayRef)>(dlsym(skyLight, "SLSRemoveWindowsFromSpaces"));
+		return loaded;
+	}();
+	return api;
+}
+
+uint64_t overlaySpace() {
+	static const uint64_t space = [] -> uint64_t {
+		const auto& api = skyLightSpaces();
+		if (!api.available()) return 0;
+		auto connection = api.mainConnection();
+		auto createdSpace = api.createSpace(connection, 1, nullptr);
+		if (createdSpace == 0) return 0;
+		api.setAbsoluteLevel(connection, createdSpace, OVERLAY_SPACE_ABSOLUTE_LEVEL);
+		api.showSpaces(connection, (__bridge CFArrayRef) @[@(createdSpace)]);
+		return createdSpace;
+	}();
+	return space;
+}
+
+void placeInOverlaySpace(NSWindow* window, bool inOverlay) {
+	const auto& api = skyLightSpaces();
+	auto space = overlaySpace();
+	if (space == 0 || window.windowNumber <= 0) return;
+
+	NSArray* windowNumbers = @[@(window.windowNumber)];
+	if (inOverlay) {
+		api.addWindows(api.mainConnection(), space, (__bridge CFArrayRef)windowNumbers, ALL_SPACES_MASK);
+	} else {
+		api.removeWindows(api.mainConnection(), (__bridge CFArrayRef)windowNumbers, (__bridge CFArrayRef) @[@(space)]);
+	}
+}
+
 NSWindow* windowForHandle(WId viewHandle) {
 	auto* view = (__bridge NSView*)reinterpret_cast<void*>(viewHandle);
 	return view.window;
@@ -42,6 +105,7 @@ void configurePanel(WId viewHandle, int layer) {
 	window.hasShadow = NO;
 	window.hidesOnDeactivate = NO;
 	window.opaque = NO;
+	placeInOverlaySpace(window, layer >= TOP_LAYER);
 }
 
 void focusPanel(WId viewHandle) {
