@@ -91,11 +91,19 @@ std::vector<std::string> splitFields(std::string_view text) {
 	return fields;
 }
 
-std::string escapeTerseValue(const std::string& value) {
+std::string escapeTerseValue(const std::string& value, bool escapeSeparators) {
 	std::string escaped;
 	for (char character: value) {
-		if (character == ':' || character == '\\') escaped += '\\';
-		escaped += character;
+		if (character == '\n') {
+			escaped += "\\n";
+		} else if (character == '\r') {
+			escaped += "\\r";
+		} else if (static_cast<unsigned char>(character) < 0x20) {
+			escaped += ' ';
+		} else {
+			if (escapeSeparators && (character == ':' || character == '\\')) escaped += '\\';
+			escaped += character;
+		}
 	}
 	return escaped;
 }
@@ -124,7 +132,7 @@ int printTable(const Table& table, const OutputOptions& options) {
 			for (size_t index = 0; index < fields.size(); index++) {
 				if (index > 0) std::fputc(':', stdout);
 				auto value = valueOf(row, fields[index]);
-				std::fputs((fields.size() > 1 ? escapeTerseValue(value) : value).c_str(), stdout);
+				std::fputs(escapeTerseValue(value, fields.size() > 1).c_str(), stdout);
 			}
 			std::fputc('\n', stdout);
 		}
@@ -134,7 +142,7 @@ int printTable(const Table& table, const OutputOptions& options) {
 	std::vector<size_t> widths;
 	for (const auto& field: fields) {
 		size_t width = field.size();
-		for (const auto& row: table.rows) width = std::max(width, valueOf(row, field).size());
+		for (const auto& row: table.rows) width = std::max(width, escapeTerseValue(valueOf(row, field), false).size());
 		widths.push_back(width);
 	}
 	auto printLine = [&](const std::function<std::string(size_t)>& cellAt) {
@@ -146,7 +154,9 @@ int printTable(const Table& table, const OutputOptions& options) {
 		std::fputc('\n', stdout);
 	};
 	printLine([&](size_t index) { return fields[index]; });
-	for (const auto& row: table.rows) printLine([&](size_t index) { return valueOf(row, fields[index]); });
+	for (const auto& row: table.rows) {
+		printLine([&](size_t index) { return escapeTerseValue(valueOf(row, fields[index]), false); });
+	}
 	return 0;
 }
 
@@ -279,9 +289,26 @@ int connectToSsid(const std::string& ssid, std::optional<std::string> password) 
 		return EXIT_NOT_FOUND;
 	}
 
+	CWNetworkProfile* savedProfile = nil;
+	for (CWNetworkProfile* profile in interface.configuration.networkProfiles) {
+		if (utf8(profile.ssid) == ssid) savedProfile = profile;
+	}
+
 	NSError* error = nil;
 	NSSet<CWNetwork*>* matches = [interface scanForNetworksWithName:@(ssid.c_str()) error:&error];
-	CWNetwork* target = matches.anyObject;
+	CWNetwork* target = nil;
+	for (CWNetwork* candidate in matches) {
+		if (utf8(candidate.ssid) != ssid) continue;
+		bool candidateIsOpen = [candidate supportsSecurity:kCWSecurityNone];
+		if (savedProfile && savedProfile.security != kCWSecurityNone && candidateIsOpen) continue;
+		if (savedProfile && ![candidate supportsSecurity:savedProfile.security]) continue;
+		if (password && candidateIsOpen) continue;
+		bool candidateIsPreferred = !target
+		                         || ([target supportsSecurity:kCWSecurityNone] && !candidateIsOpen)
+		                         || ([target supportsSecurity:kCWSecurityNone] == candidateIsOpen
+		                             && candidate.rssiValue > target.rssiValue);
+		if (candidateIsPreferred) target = candidate;
+	}
 	if (!target) {
 		std::fprintf(stderr, "Error: No network with SSID '%s' found.\n", ssid.c_str());
 		return EXIT_NOT_FOUND;
