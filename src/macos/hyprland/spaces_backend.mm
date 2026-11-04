@@ -2,6 +2,9 @@
 #include <dlfcn.h>
 #include <utility>
 
+#include <memory>
+
+#include <qtimer.h>
 #include <qprocess.h>
 #include <qset.h>
 #include <qstring.h>
@@ -27,10 +30,13 @@ constexpr int MOVE_LEFT_SPACE_HOT_KEY_ID = 79;
 constexpr int MOVE_RIGHT_SPACE_HOT_KEY_ID = 81;
 constexpr useconds_t KEY_STEP_DELAY_MICROSECONDS = 120000;
 
+constexpr int ACTIVE_SPACE_POLL_MILLISECONDS = 16;
+
 struct SkyLight {
 	MainConnectionFunction mainConnection = nullptr;
 	CopyManagedDisplaySpacesFunction copyManagedDisplaySpaces = nullptr;
 	CopySpacesForWindowsFunction copySpacesForWindows = nullptr;
+	quint64 (*activeSpace)(int) = nullptr;
 	int connection = 0;
 
 	[[nodiscard]] bool isAvailable() const { return this->copyManagedDisplaySpaces != nullptr; }
@@ -48,6 +54,7 @@ const SkyLight& skyLight() {
 		);
 		loaded.copySpacesForWindows =
 		    reinterpret_cast<CopySpacesForWindowsFunction>(dlsym(handle, "SLSCopySpacesForWindows"));
+		loaded.activeSpace = reinterpret_cast<quint64 (*)(int)>(dlsym(handle, "SLSGetActiveSpace"));
 		if (loaded.mainConnection) loaded.connection = loaded.mainConnection();
 		return loaded;
 	}();
@@ -151,6 +158,8 @@ QList<DisplaySpaces> readDisplaySpaces() {
 	CFArrayRef rawDisplays = library.copyManagedDisplaySpaces(library.connection);
 	if (!rawDisplays) return {};
 
+	auto activeSpace = library.activeSpace ? library.activeSpace(library.connection) : 0;
+
 	QList<DisplaySpaces> displays;
 	for (NSDictionary* display in (__bridge NSArray*)rawDisplays) {
 		DisplaySpaces description;
@@ -162,6 +171,10 @@ QList<DisplaySpaces> readDisplaySpaces() {
 			(isDesktop ? description.desktopSpaceIds : description.fullscreenSpaceIds)
 			    .append(spaceIdentifier(space));
 		}
+
+		auto ownsActiveSpace = description.desktopSpaceIds.contains(activeSpace)
+		                    || description.fullscreenSpaceIds.contains(activeSpace);
+		if (ownsActiveSpace) description.currentSpaceId = activeSpace;
 
 		displays.append(description);
 	}
@@ -331,6 +344,20 @@ SystemEventObserver::SystemEventObserver(
 	};
 
 	observe(workspaceCenter, NSWorkspaceActiveSpaceDidChangeNotification, spacesHandler);
+
+	if (skyLight().activeSpace) {
+		auto* poller = new QTimer();
+		poller->setInterval(ACTIVE_SPACE_POLL_MILLISECONDS);
+		auto lastActiveSpace = std::make_shared<quint64>(skyLight().activeSpace(skyLight().connection));
+		QObject::connect(poller, &QTimer::timeout, [spacesHandler, lastActiveSpace] {
+			auto activeSpace = skyLight().activeSpace(skyLight().connection);
+			if (activeSpace == *lastActiveSpace) return;
+			*lastActiveSpace = activeSpace;
+			(*spacesHandler)();
+		});
+		poller->start();
+		this->activeSpacePoller = poller;
+	}
 	observe(NSNotificationCenter.defaultCenter, NSApplicationDidChangeScreenParametersNotification, spacesHandler);
 	observe(workspaceCenter, NSWorkspaceDidActivateApplicationNotification, focusHandler);
 	observe(workspaceCenter, NSWorkspaceDidLaunchApplicationNotification, focusHandler);
@@ -338,6 +365,7 @@ SystemEventObserver::SystemEventObserver(
 }
 
 SystemEventObserver::~SystemEventObserver() {
+	delete this->activeSpacePoller;
 	for (const auto& registration: this->registrations) {
 		id token = (__bridge_transfer id)registration.observerToken;
 		auto* center = (__bridge NSNotificationCenter*)registration.notificationCenter;

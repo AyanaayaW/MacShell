@@ -1,3 +1,7 @@
+#include <vector>
+#include <mach-o/dyld.h>
+#include <fcntl.h>
+#include <spawn.h>
 #include <algorithm>
 #include <array>
 #include <cerrno>
@@ -36,6 +40,8 @@
 #include "../io/ipccomm.hpp"
 #include "../ipc/ipc.hpp"
 #include "launch_p.hpp"
+
+extern char** environ;
 
 namespace qs::launch {
 
@@ -605,6 +611,68 @@ int launchFromCommand(CommandState& cmd) {
 
 } // namespace
 
+#ifdef __APPLE__
+namespace {
+
+int relaunchDetached(int argc, char** argv) {
+	std::array<int, 2> statusPipe {};
+	if (pipe(statusPipe.data()) == -1) {
+		qFatal().nospace() << "Failed to create messaging pipes for daemon with error " << errno << ": "
+		                   << qt_error_string();
+	}
+
+	std::array<char, PATH_MAX> executablePath {};
+	auto pathSize = static_cast<uint32_t>(executablePath.size());
+	std::array<char, PATH_MAX> resolvedPath {};
+	if (_NSGetExecutablePath(executablePath.data(), &pathSize) != 0
+	    || !realpath(executablePath.data(), resolvedPath.data()))
+	{
+		qFatal() << "Failed to locate the MacShell executable for daemonizing";
+	}
+
+	std::vector<char*> childArguments;
+	for (int index = 0; index < argc; ++index) {
+		if (std::strcmp(argv[index], "-d") == 0 || std::strcmp(argv[index], "--daemonize") == 0) continue;
+		childArguments.push_back(argv[index]);
+	}
+	childArguments.push_back(nullptr);
+
+	qputenv("MACSHELL_DAEMON_PIPE", QByteArray::number(statusPipe[1]));
+
+	posix_spawnattr_t attributes;
+	posix_spawnattr_init(&attributes);
+	posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETSID | POSIX_SPAWN_CLOEXEC_DEFAULT);
+
+	posix_spawn_file_actions_t fileActions;
+	posix_spawn_file_actions_init(&fileActions);
+	posix_spawn_file_actions_addopen(&fileActions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
+	posix_spawn_file_actions_addopen(&fileActions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
+	posix_spawn_file_actions_addopen(&fileActions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+	posix_spawn_file_actions_addinherit_np(&fileActions, statusPipe[1]);
+
+	pid_t childProcess = 0;
+	auto spawnStatus =
+	    posix_spawn(&childProcess, resolvedPath.data(), &fileActions, &attributes, childArguments.data(), environ);
+	posix_spawn_file_actions_destroy(&fileActions);
+	posix_spawnattr_destroy(&attributes);
+	qunsetenv("MACSHELL_DAEMON_PIPE");
+	close(statusPipe[1]);
+
+	if (spawnStatus != 0) {
+		qFatal().nospace() << "Failed to start daemon with error " << spawnStatus;
+	}
+
+	int launchResult = 0;
+	if (read(statusPipe[0], &launchResult, sizeof(int)) <= 0) {
+		qFatal() << "Failed to wait for daemon launch (it may have crashed)";
+	}
+	close(statusPipe[0]);
+	return launchResult;
+}
+
+}
+#endif
+
 int runCommand(int argc, char** argv) {
 	auto state = CommandState();
 	if (auto ret = parseCommand(argc, argv, state); ret != 65535) return ret;
@@ -620,6 +688,16 @@ int runCommand(int argc, char** argv) {
 
 		return 0;
 	}
+
+#ifdef __APPLE__
+	if (auto inheritedPipe = qEnvironmentVariableIntValue("MACSHELL_DAEMON_PIPE"); inheritedPipe > 0) {
+		DAEMON_PIPE = inheritedPipe;
+		qunsetenv("MACSHELL_DAEMON_PIPE");
+		state.misc.daemonize = false;
+	}
+
+	if (state.misc.daemonize) return relaunchDetached(argc, argv);
+#endif
 
 	// Has to happen before extra threads are spawned.
 	if (state.misc.daemonize) {

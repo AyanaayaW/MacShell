@@ -3,6 +3,7 @@
 #include <functional>
 
 #include <qlist.h>
+#include <qtimer.h>
 #include <qrect.h>
 #include <qstring.h>
 #include <qtypes.h>
@@ -59,6 +60,7 @@ private:
 	};
 
 	QList<Registration> registrations;
+	QTimer* activeSpacePoller = nullptr;
 };
 
 }
