@@ -317,8 +317,7 @@ void restoreSystemUi() {
 	if (!backup) return;
 
 	for (const auto& preference: managedPreferences()) {
-		id originalValue = backup[backupKey(preference)];
-		writePreference(preference, [originalValue isKindOfClass:[NSNull class]] ? nil : originalValue);
+		writePreference(preference, backup[backupKey(preference)]);
 	}
 
 	applyPreferenceChanges();
@@ -334,7 +333,7 @@ void hideSystemUi() {
 	for (const auto& preference: managedPreferences()) {
 		id currentValue =
 		    CFBridgingRelease(CFPreferencesCopyAppValue(preference.key, preference.domain));
-		backup[backupKey(preference)] = currentValue ?: [NSNull null];
+		if (currentValue) backup[backupKey(preference)] = currentValue;
 	}
 
 	if (![backup writeToFile:backupFilePath() atomically:YES]) {

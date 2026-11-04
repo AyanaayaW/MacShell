@@ -15,6 +15,7 @@ qt_add_library(quickshell-macos STATIC
 	screencopy.mm
 	settings.mm
 	linux_files.mm
+	input_region.mm
 )
 
 qt_add_qml_module(quickshell-macos

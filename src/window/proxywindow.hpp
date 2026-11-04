@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <optional>
 
 #include <qcolor.h>
 #include <qcontainerfwd.h>
@@ -13,6 +14,7 @@
 #include <qqmlparserstatus.h>
 #include <qquickitem.h>
 #include <qquickwindow.h>
+#include <qregion.h>
 #include <qsurfaceformat.h>
 #include <qtmetamacros.h>
 #include <qtypes.h>
@@ -259,6 +261,10 @@ public:
 	explicit QsQuickWindowBase(QWindow* parent = nullptr);
 
 	static void callOnScenegraphInit(std::function<void(QQuickWindow*)> cb);
+
+	using InputRegionHandler = std::function<void(QWindow* window, const std::optional<QRegion>& inputRegion)>;
+	static void setPlatformInputRegionHandler(InputRegionHandler handler);
+	static const InputRegionHandler& platformInputRegionHandler();
 
 private slots:
 	void onSceneGraphInitialized();

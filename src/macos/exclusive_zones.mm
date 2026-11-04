@@ -1,5 +1,6 @@
 #include "exclusive_zones.hpp"
 #include <algorithm>
+#include <atomic>
 
 #include <qlist.h>
 #include <qmargins.h>
@@ -13,7 +14,17 @@ namespace qs::macos {
 
 namespace {
 
-constexpr int ENFORCE_INTERVAL_MILLISECONDS = 1000;
+dispatch_queue_t enforcementQueue() {
+	static dispatch_queue_t queue = dispatch_queue_create("MacShell.ExclusiveZones", DISPATCH_QUEUE_SERIAL);
+	return queue;
+}
+
+std::atomic<bool>& enforcementRunning() {
+	static std::atomic<bool> running = false;
+	return running;
+}
+
+constexpr int ENFORCE_INTERVAL_MILLISECONDS = 250;
 constexpr float ACCESSIBILITY_TIMEOUT_SECONDS = 0.2F;
 constexpr int ADJUSTMENT_TOLERANCE = 1;
 
@@ -118,9 +129,18 @@ QRect ExclusiveZoneEnforcer::usableGeometry(const QRect& screenGeometry) const {
 
 void ExclusiveZoneEnforcer::enforce() {
 	if (this->mReservations.isEmpty() || !AXIsProcessTrusted()) return;
+	if (enforcementRunning().exchange(true)) return;
 
+	auto reservations = this->mReservations;
 	auto ownProcessId = NSProcessInfo.processInfo.processIdentifier;
 
+	dispatch_async(enforcementQueue(), ^{
+		enforceReservations(reservations, ownProcessId);
+		enforcementRunning() = false;
+	});
+}
+
+void ExclusiveZoneEnforcer::enforceReservations(const QList<ScreenReservation>& reservations, pid_t ownProcessId) {
 	@autoreleasepool {
 		for (NSRunningApplication* application in NSWorkspace.sharedWorkspace.runningApplications) {
 			if (application.activationPolicy != NSApplicationActivationPolicyRegular) continue;
@@ -137,7 +157,7 @@ void ExclusiveZoneEnforcer::enforce() {
 				auto frame = windowFrame(window);
 				if (frame.isEmpty()) continue;
 
-				for (const auto& reservation: this->mReservations) {
+				for (const auto& reservation: reservations) {
 					if (!reservation.screenGeometry.contains(frame.center())) continue;
 
 					auto usable = reservation.screenGeometry.marginsRemoved(reservation.reservedInsets);

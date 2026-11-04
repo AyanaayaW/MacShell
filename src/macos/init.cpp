@@ -15,10 +15,12 @@
 #include "../core/iconimageprovider.hpp"
 #include "../core/plugin.hpp"
 #include "../io/fileview.hpp"
+#include "../window/proxywindow.hpp"
 #include "applications.hpp"
 #include "cocoa.hpp"
 #include "hyprland/hyprctl.hpp"
 #include "icons.hpp"
+#include "input_region.hpp"
 #include "linux_files.hpp"
 #include "panel_window.hpp"
 #include "settings.hpp"
@@ -34,6 +36,7 @@ class MacPlugin: public QsEnginePlugin {
 		qs::macos::setAccessoryApp();
 		IconImageProvider::setPlatformIconResolver(qs::macos::resolveIcon);
 		qs::io::FileViewReader::setVirtualFileProvider(qs::macos::linuxPseudoFile);
+		QsQuickWindowBase::setPlatformInputRegionHandler(qs::macos::applyInputRegion);
 		DesktopEntryManager::setPlatformEntryScanner([]() {
 			static std::once_flag watcherStarted;
 			std::call_once(watcherStarted, []() {

@@ -641,6 +641,23 @@ void QsQuickWindowBase::callOnScenegraphInit(std::function<void(QQuickWindow*)> 
 	SCENEGRAPH_INIT_CALLBACKS.emplaceBack(cb);
 }
 
+namespace {
+
+QsQuickWindowBase::InputRegionHandler& inputRegionHandlerStorage() {
+	static QsQuickWindowBase::InputRegionHandler handler;
+	return handler;
+}
+
+}
+
+void QsQuickWindowBase::setPlatformInputRegionHandler(InputRegionHandler handler) {
+	inputRegionHandlerStorage() = std::move(handler);
+}
+
+const QsQuickWindowBase::InputRegionHandler& QsQuickWindowBase::platformInputRegionHandler() {
+	return inputRegionHandlerStorage();
+}
+
 bool ProxiedWindow::event(QEvent* event) {
 	if (event->type() == QEvent::DevicePixelRatioChange) {
 		emit this->devicePixelRatioChanged();
@@ -663,8 +680,12 @@ void ProxyWindowBase::onPolished() {
 			mask = this->mMask->applyTo(QRect(0, 0, this->width(), this->height()));
 		}
 
-		this->window->setFlag(Qt::WindowTransparentForInput, this->mMask != nullptr && mask.isEmpty());
-		this->window->setMask(mask);
+		if (const auto& inputRegionHandler = QsQuickWindowBase::platformInputRegionHandler()) {
+			inputRegionHandler(this->window, this->mMask != nullptr ? std::optional(mask) : std::nullopt);
+		} else {
+			this->window->setFlag(Qt::WindowTransparentForInput, this->mMask != nullptr && mask.isEmpty());
+			this->window->setMask(mask);
+		}
 
 		this->pendingPolish.inputMask = false;
 	}

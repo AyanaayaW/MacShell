@@ -1,5 +1,7 @@
 #pragma once
 
+#include <sys/types.h>
+
 #include <qlist.h>
 #include <qmargins.h>
 #include <qobject.h>
@@ -26,6 +28,7 @@ private:
 	ExclusiveZoneEnforcer();
 
 	void enforce();
+	static void enforceReservations(const QList<ScreenReservation>& reservations, pid_t ownProcessId);
 
 	QList<ScreenReservation> mReservations;
 	QTimer mEnforceTimer;
