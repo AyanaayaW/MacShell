@@ -10,6 +10,7 @@ struct MacShellSettings {
 	bool hideSystemUi = false;
 	bool launchAtLogin = false;
 	bool hyprlandAutostart = true;
+	bool mirrorNotifications = true;
 };
 
 QString settingsFilePath();

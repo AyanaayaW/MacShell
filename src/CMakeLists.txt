@@ -2,6 +2,10 @@ qt_add_executable(quickshell main.cpp)
 
 install(TARGETS quickshell RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
+if (APPLE)
+	enable_language(OBJCXX)
+endif()
+
 add_subdirectory(build)
 add_subdirectory(launch)
 add_subdirectory(core)
@@ -44,6 +48,5 @@ if (NETWORK)
 endif()
 
 if (APPLE)
-	enable_language(OBJCXX)
 	add_subdirectory(macos)
 endif()

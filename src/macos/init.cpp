@@ -15,6 +15,7 @@
 #include "../core/iconimageprovider.hpp"
 #include "../core/plugin.hpp"
 #include "../io/fileview.hpp"
+#include "../services/notifications/system_mirror.hpp"
 #include "../window/proxywindow.hpp"
 #include "applications.hpp"
 #include "cocoa.hpp"
@@ -64,6 +65,7 @@ class MacPlugin: public QsEnginePlugin {
 		qs::hyprland::global_shortcuts::setSuperModifier(qs::macos::carbonModifierNamed(settings.superKey));
 		qs::hyprland::global_shortcuts::HotKeyRegistry::instance();
 		if (settings.hyprlandAutostart) qs::hyprland::global_shortcuts::runHyprlandAutostart();
+		if (settings.mirrorNotifications) qs::service::notifications::startSystemNotificationMirror();
 		qs::macos::applyLaunchAtLogin(settings.launchAtLogin);
 
 		if (settings.hideSystemUi) {

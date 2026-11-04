@@ -15,7 +15,9 @@ qt_add_library(quickshell-service-notifications STATIC
 )
 
 if (APPLE)
-	target_sources(quickshell-service-notifications PRIVATE local_bridge.cpp)
+	target_sources(quickshell-service-notifications PRIVATE local_bridge.cpp system_mirror.mm)
+	set_source_files_properties(system_mirror.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc" SKIP_PRECOMPILE_HEADERS ON)
+	target_link_libraries(quickshell-service-notifications PRIVATE sqlite3 "-framework AppKit")
 	target_link_libraries(quickshell-service-notifications PRIVATE Qt::Network)
 endif()
 

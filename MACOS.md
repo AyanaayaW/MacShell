@@ -92,6 +92,7 @@ the xkb layout list from macOS.
 | `launch_at_login` | `false` | start MacShell when you log in |
 | `super_key` | `option` | the Mac key that Hyprland's Super binds use: `option`, `command` or `control` |
 | `hyprland_autostart` | `true` | run `exec-once` and `env` lines from `hyprland.conf` |
+| `mirror_notifications` | `true` | show other apps' macOS notifications in your config (needs Full Disk Access) |
 
 ## Permissions
 
@@ -105,14 +106,17 @@ Privacy & Security:
 | Location Services | Wi-Fi network names |
 | Bluetooth | Bluetooth devices |
 | Automation | Spotify and Music controls |
+| Full Disk Access | mirroring other apps' notifications |
 
 ## Differences from Linux
 
 - **Wallpapers slide with Spaces.** Panels on the top and overlay layers stay still during Space switches, but macOS
   draws each Space's own wallpaper above anything beneath your windows. To make a wallpaper look still, turn on
   Accessibility → Display → Reduce motion and give every Space the same picture.
-- **Other apps' notifications stay with macOS.** Notifications sent through `notify-send` or D-Bus-style servers reach
-  your config. To keep macOS from showing its own banners, set apps to "None" in System Settings → Notifications.
+- **Other apps' notifications are mirrored, not intercepted.** With Full Disk Access granted to MacShell, notifications
+  that macOS delivers also reach your config's `NotificationServer`, with the app's name and bundle ID. macOS still shows
+  its own banner as well; to avoid seeing both, set the app's alert style to "None" in System Settings → Notifications,
+  which still records it for MacShell. Set `mirror_notifications=false` to turn mirroring off.
 - **Lock screens** verify passwords with macOS. Configs that use a Linux PAM folder with a plain `pam_unix` password
   check are verified against your macOS login; fingerprint and other Linux-only modules are refused.
 - **Compiled QML plugins** that ship with a config are built for Linux and need a macOS build before they load.
