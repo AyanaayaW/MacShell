@@ -101,6 +101,19 @@ void FileViewReader::run() {
 	this->finishRun();
 }
 
+namespace {
+
+FileViewReader::VirtualFileProvider& virtualFileProvider() {
+	static FileViewReader::VirtualFileProvider provider;
+	return provider;
+}
+
+}
+
+void FileViewReader::setVirtualFileProvider(VirtualFileProvider provider) {
+	virtualFileProvider() = std::move(provider);
+}
+
 void FileViewReader::read(
     FileView* view,
     FileViewState& state,
@@ -108,6 +121,15 @@ void FileViewReader::read(
     const QAtomicInteger<bool>& shouldCancel
 ) {
 	qCDebug(logFileView) << "Reader started for" << state.path;
+
+	if (const auto& provider = virtualFileProvider(); provider && !QFileInfo::exists(state.path)) {
+		if (auto virtualContent = provider(state.path)) {
+			state.exists = true;
+			state.data = *virtualContent;
+			if (doStringConversion) state.data.operator const QString&();
+			return;
+		}
+	}
 
 	auto info = QFileInfo(state.path);
 	state.exists = info.exists();

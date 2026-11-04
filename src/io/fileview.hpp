@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+#include <optional>
 #include <utility>
 
 #include <qatomic.h>
@@ -112,6 +114,9 @@ public:
 	    , doStringConversion(doStringConversion) {}
 
 	void run() override;
+
+	using VirtualFileProvider = std::function<std::optional<QByteArray>(const QString& path)>;
+	static void setVirtualFileProvider(VirtualFileProvider provider);
 
 	static void read(
 	    FileView* view,

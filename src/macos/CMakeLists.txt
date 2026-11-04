@@ -14,6 +14,7 @@ qt_add_library(quickshell-macos STATIC
 	shortcut_inhibitor.cpp
 	screencopy.mm
 	settings.mm
+	linux_files.mm
 )
 
 qt_add_qml_module(quickshell-macos

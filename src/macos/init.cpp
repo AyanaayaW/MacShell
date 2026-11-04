@@ -1,20 +1,25 @@
 #include <mutex>
 
 #include <qcoreapplication.h>
+#include <qdir.h>
 #include <qguiapplication.h>
 #include <qlist.h>
 #include <qmetaobject.h>
 #include <qqml.h>
+#include <qqmlengine.h>
 #include <qstring.h>
 #include <qtenvironmentvariables.h>
 
 #include "../core/desktopentry.hpp"
+#include "../core/generation.hpp"
 #include "../core/iconimageprovider.hpp"
 #include "../core/plugin.hpp"
+#include "../io/fileview.hpp"
 #include "applications.hpp"
 #include "cocoa.hpp"
 #include "hyprland/hyprctl.hpp"
 #include "icons.hpp"
+#include "linux_files.hpp"
 #include "panel_window.hpp"
 #include "settings.hpp"
 
@@ -28,6 +33,7 @@ class MacPlugin: public QsEnginePlugin {
 	void init() override {
 		qs::macos::setAccessoryApp();
 		IconImageProvider::setPlatformIconResolver(qs::macos::resolveIcon);
+		qs::io::FileViewReader::setVirtualFileProvider(qs::macos::linuxPseudoFile);
 		DesktopEntryManager::setPlatformEntryScanner([]() {
 			static std::once_flag watcherStarted;
 			std::call_once(watcherStarted, []() {
@@ -42,8 +48,6 @@ class MacPlugin: public QsEnginePlugin {
 
 		qs::hyprland::ipc::startHyprctlServer();
 
-		qs::hyprland::ipc::startHyprctlServer();
-
 		auto settings = qs::macos::readSettings();
 		qs::macos::applyLaunchAtLogin(settings.launchAtLogin);
 
@@ -55,6 +59,10 @@ class MacPlugin: public QsEnginePlugin {
 		} else {
 			qs::macos::restoreSystemUi();
 		}
+	}
+
+	void constructGeneration(EngineGeneration& generation) override {
+		generation.engine->addImportPath(QDir::homePath() + "/Library/Application Support/MacShell/qml");
 	}
 
 	void registerTypes() override {

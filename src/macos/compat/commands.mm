@@ -178,7 +178,10 @@ void exposeCompatCommandsOnPath() {
 	};
 
 	if (!containsEntry(executableDirectory)) searchPath = executableDirectory + ":" + searchPath;
-	for (const std::string userToolDirectory: {"/opt/homebrew/bin", "/usr/local/bin"}) {
+	const char* homeDirectory = std::getenv("HOME");
+	std::string userLocalBin = homeDirectory ? std::string(homeDirectory) + "/.local/bin" : std::string();
+	for (const std::string& userToolDirectory: {userLocalBin, std::string("/opt/homebrew/bin"), std::string("/usr/local/bin")}) {
+		if (userToolDirectory.empty()) continue;
 		if (!containsEntry(userToolDirectory) && access(userToolDirectory.c_str(), X_OK) == 0) {
 			searchPath += ":" + userToolDirectory;
 		}
