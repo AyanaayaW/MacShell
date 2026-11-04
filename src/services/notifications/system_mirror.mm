@@ -102,12 +102,10 @@ private:
 		if (title.isEmpty() && body.isEmpty()) return;
 
 		if (!subtitle.isEmpty()) body = body.isEmpty() ? subtitle : subtitle + u'\n' + body;
+		body = body.toHtmlEscaped();
 
 		auto applicationIdentifier = QString::fromNSString(bundleIdentifier);
-		QVariantMap hints {
-		    {QStringLiteral("desktop-entry"), applicationIdentifier},
-		    {QStringLiteral("x-macshell-system"), true},
-		};
+		QVariantMap hints {{QStringLiteral("desktop-entry"), applicationIdentifier}};
 
 		NotificationServer::instance()->Notify(
 		    applicationNameFor(bundleIdentifier),
