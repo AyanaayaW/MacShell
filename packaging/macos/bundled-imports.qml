@@ -17,5 +17,10 @@ import QtQuick.Dialogs
 import Qt5Compat.GraphicalEffects
 import Qt.labs.folderlistmodel
 import Qt.labs.platform
+import Qt.labs.synchronizer
+import QtMultimedia
+import QtTest
+import QtPositioning
+import QtQuick.Controls.FluentWinUI3
 
 Item {}
