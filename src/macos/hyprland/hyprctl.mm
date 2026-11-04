@@ -1,21 +1,25 @@
 #include "hyprctl.hpp"
 #include <cstdio>
+#include <cstdlib>
 #include <unistd.h>
 
 #include <qcoreapplication.h>
+#include <qdatetime.h>
 #include <qdir.h>
 #include <qfileinfo.h>
-#include <qjsonarray.h>
 #include <qjsondocument.h>
-#include <qjsonobject.h>
+#include <qlist.h>
 #include <qlocalserver.h>
 #include <qlocalsocket.h>
+#include <qpointer.h>
 #include <qstring.h>
 #include <qstringlist.h>
+#include <qtenvironmentvariables.h>
 #include <qvariant.h>
 
 #include "../../core/paths.hpp"
 #include "hyprland.hpp"
+#include "keyboard_layouts.hpp"
 
 #import <AppKit/AppKit.h>
 
@@ -24,6 +28,8 @@ namespace qs::hyprland::ipc {
 namespace {
 
 constexpr int SOCKET_TIMEOUT_MILLISECONDS = 3000;
+const QString BATCH_PREFIX = QStringLiteral("[[BATCH]]");
+const QString KEYBOARD_NAME = QStringLiteral("macos-keyboard");
 
 QByteArray toJson(const QVariant& value) {
 	return QJsonDocument::fromVariant(value).toJson(QJsonDocument::Indented);
@@ -62,11 +68,42 @@ QVariantMap cursorPosition() {
 	};
 }
 
+QVariantMap keyboardObject() {
+	QStringList layoutCodes;
+	for (const auto& layout: macos::enabledKeyboardLayouts()) layoutCodes.append(layout.code);
+	auto current = macos::currentKeyboardLayout();
+
+	return {
+	    {QStringLiteral("address"), QStringLiteral("0x1")},
+	    {QStringLiteral("name"), KEYBOARD_NAME},
+	    {QStringLiteral("rules"), QString()},
+	    {QStringLiteral("model"), QString()},
+	    {QStringLiteral("layout"), layoutCodes.join(u',')},
+	    {QStringLiteral("variant"), QString()},
+	    {QStringLiteral("options"), QString()},
+	    {QStringLiteral("active_keymap"), current ? current->name : QStringLiteral("Unknown")},
+	    {QStringLiteral("capsLock"), macos::capsLockEnabled()},
+	    {QStringLiteral("numLock"), false},
+	    {QStringLiteral("main"), true},
+	};
+}
+
+QVariantMap devicesObject() {
+	return {
+	    {QStringLiteral("mice"), QVariantList()},
+	    {QStringLiteral("keyboards"), QVariantList {keyboardObject()}},
+	    {QStringLiteral("tablets"), QVariantList()},
+	    {QStringLiteral("touch"), QVariantList()},
+	    {QStringLiteral("switches"), QVariantList()},
+	};
+}
+
 QString describeObject(const QString& heading, const QVariantMap& object) {
 	QString text = heading + u'\n';
 	for (const auto& [key, value]: object.asKeyValueRange()) {
-		auto rendered = value.canConvert<QString>() ? value.toString()
-		                                            : QString::fromUtf8(QJsonDocument::fromVariant(value).toJson(QJsonDocument::Compact));
+		auto rendered = value.canConvert<QString>()
+		                  ? value.toString()
+		                  : QString::fromUtf8(QJsonDocument::fromVariant(value).toJson(QJsonDocument::Compact));
 		text += u'\t' + key + QStringLiteral(": ") + rendered + u'\n';
 	}
 	return text;
@@ -82,152 +119,300 @@ QString describeList(const QString& kind, const QVariantList& objects) {
 	return text;
 }
 
-QByteArray respond(const QStringList& arguments) {
-	auto json = arguments.contains(QStringLiteral("-j"));
-	QStringList words;
-	for (const auto& argument: arguments) {
-		if (argument != QStringLiteral("-j")) words.append(argument);
-	}
-	if (words.isEmpty()) return "usage: hyprctl [-j] <command> [arguments]\n";
+QByteArray formatted(bool json, const QVariant& value, const QString& text) {
+	return json ? toJson(value) : text.toUtf8();
+}
+
+QByteArray respondToCommand(const QString& commandLine, bool json) {
+	auto words = commandLine.trimmed().split(u' ', Qt::SkipEmptyParts);
+	if (words.isEmpty()) return "unknown request";
 
 	auto command = words.takeFirst();
+	auto argument = words.join(u' ');
 	auto* state = HyprlandState::instance();
 
 	if (command == QStringLiteral("dispatch")) {
-		state->dispatch(words.join(u' '));
-		return "ok\n";
+		state->dispatch(argument);
+		return "ok";
 	}
-
 	if (command == QStringLiteral("monitors")) {
-		return json ? toJson(monitorObjects()) : describeList(QStringLiteral("Monitor"), monitorObjects()).toUtf8();
+		return formatted(json, monitorObjects(), describeList(QStringLiteral("Monitor"), monitorObjects()));
 	}
-
 	if (command == QStringLiteral("workspaces")) {
-		return json ? toJson(workspaceObjects()) : describeList(QStringLiteral("workspace"), workspaceObjects()).toUtf8();
+		return formatted(json, workspaceObjects(), describeList(QStringLiteral("workspace"), workspaceObjects()));
 	}
-
 	if (command == QStringLiteral("clients")) {
-		return json ? toJson(clientObjects()) : describeList(QStringLiteral("Window"), clientObjects()).toUtf8();
+		return formatted(json, clientObjects(), describeList(QStringLiteral("Window"), clientObjects()));
 	}
-
 	if (command == QStringLiteral("activeworkspace")) {
 		auto* workspace = state->bindableFocusedWorkspace().value();
 		auto object = workspace ? workspace->lastIpcObject() : QVariantMap();
-		return json ? toJson(object) : describeObject(QStringLiteral("workspace:"), object).toUtf8();
+		return formatted(json, object, describeObject(QStringLiteral("workspace:"), object));
 	}
-
 	if (command == QStringLiteral("activewindow")) {
 		auto* toplevel = state->bindableActiveToplevel().value();
 		auto object = toplevel ? toplevel->bindableLastIpcObject().value() : QVariantMap();
-		return json ? toJson(object) : describeObject(QStringLiteral("Window:"), object).toUtf8();
+		return formatted(json, object, describeObject(QStringLiteral("Window:"), object));
 	}
-
+	if (command == QStringLiteral("devices")) {
+		return formatted(json, devicesObject(), describeObject(QStringLiteral("Keyboard:"), keyboardObject()));
+	}
 	if (command == QStringLiteral("cursorpos")) {
 		auto position = cursorPosition();
-		if (json) return toJson(position);
-		return QStringLiteral("%1, %2\n")
-		    .arg(position.value(QStringLiteral("x")).toInt())
-		    .arg(position.value(QStringLiteral("y")).toInt())
-		    .toUtf8();
+		return formatted(
+		    json,
+		    position,
+		    QStringLiteral("%1, %2")
+		        .arg(position.value(QStringLiteral("x")).toInt())
+		        .arg(position.value(QStringLiteral("y")).toInt())
+		);
 	}
-
+	if (command == QStringLiteral("switchxkblayout")) {
+		auto selector = words.value(1, words.value(0));
+		return macos::selectKeyboardLayout(selector) ? "ok" : "invalid layout index";
+	}
 	if (command == QStringLiteral("version")) {
 		QVariantMap version {
 		    {QStringLiteral("branch"), QStringLiteral("macshell")},
-		    {QStringLiteral("tag"), QStringLiteral("macshell-compat")},
+		    {QStringLiteral("commit"), QString()},
+		    {QStringLiteral("tag"), QStringLiteral("v0.50.0")},
+		    {QStringLiteral("version"), QStringLiteral("0.50.0")},
 		    {QStringLiteral("flags"), QVariantList()},
 		};
-		return json ? toJson(version) : "Hyprland compatibility layer provided by MacShell\n";
+		return formatted(json, version, QStringLiteral("Hyprland 0.50.0 compatibility layer provided by MacShell"));
 	}
-
+	if (command == QStringLiteral("instances")) {
+		QVariantMap instance {
+		    {QStringLiteral("instance"), qEnvironmentVariable("HYPRLAND_INSTANCE_SIGNATURE")},
+		    {QStringLiteral("time"), QDateTime::currentSecsSinceEpoch()},
+		    {QStringLiteral("pid"), QCoreApplication::applicationPid()},
+		    {QStringLiteral("wl_socket"), QString()},
+		};
+		return formatted(json, QVariantList {instance}, describeObject(QStringLiteral("instance:"), instance));
+	}
 	if (command == QStringLiteral("getoption")) {
 		QVariantMap option {
-		    {QStringLiteral("option"), words.value(0)},
+		    {QStringLiteral("option"), argument},
 		    {QStringLiteral("int"), 0},
 		    {QStringLiteral("float"), 0.0},
 		    {QStringLiteral("str"), QString()},
 		    {QStringLiteral("set"), false},
 		};
-		return json ? toJson(option) : "int: 0\nset: false\n";
+		return formatted(json, option, QStringLiteral("int: 0\nset: false"));
 	}
-
-	if (command == QStringLiteral("reload") || command == QStringLiteral("keyword")
-	    || command == QStringLiteral("hyprsunset") || command == QStringLiteral("setcursor"))
+	if (command == QStringLiteral("layers") || command == QStringLiteral("splash")) {
+		return formatted(json, QVariantMap(), QString());
+	}
+	if (command == QStringLiteral("binds") || command == QStringLiteral("globalshortcuts")
+	    || command == QStringLiteral("configerrors") || command == QStringLiteral("workspacerules")
+	    || command == QStringLiteral("layouts"))
 	{
-		return "ok\n";
+		return formatted(json, QVariantList(), QString());
+	}
+	if (command == QStringLiteral("reload") || command == QStringLiteral("keyword")
+	    || command == QStringLiteral("hyprsunset") || command == QStringLiteral("setcursor")
+	    || command == QStringLiteral("notify") || command == QStringLiteral("dismissnotify")
+	    || command == QStringLiteral("seterror") || command == QStringLiteral("setprop")
+	    || command == QStringLiteral("output") || command == QStringLiteral("plugin")
+	    || command == QStringLiteral("kill") || command == QStringLiteral("eval"))
+	{
+		return "ok";
 	}
 
-	return QStringLiteral("unknown request: %1 is not supported by MacShell\n").arg(command).toUtf8();
+	return QStringLiteral("unknown request: %1 is not supported by MacShell").arg(command).toUtf8();
+}
+
+QByteArray respondToRequest(const QByteArray& rawRequest) {
+	auto request = QString::fromUtf8(rawRequest).trimmed();
+	QString flags;
+
+	auto slashIndex = request.indexOf(u'/');
+	auto spaceIndex = request.indexOf(u' ');
+	auto bracketIndex = request.indexOf(BATCH_PREFIX);
+	if (slashIndex != -1 && (spaceIndex == -1 || slashIndex < spaceIndex)
+	    && (bracketIndex == -1 || slashIndex < bracketIndex))
+	{
+		flags = request.first(slashIndex);
+		request = request.sliced(slashIndex + 1);
+	}
+
+	auto json = flags.contains(u'j');
+	if (!request.startsWith(BATCH_PREFIX)) return respondToCommand(request, json);
+
+	QByteArray combined;
+	for (const auto& batchedCommand: request.sliced(BATCH_PREFIX.size()).split(u';', Qt::SkipEmptyParts)) {
+		auto commandText = batchedCommand.trimmed();
+		auto commandJson = json;
+		if (auto commandSlash = commandText.indexOf(u'/');
+		    commandSlash != -1 && (commandText.indexOf(u' ') == -1 || commandSlash < commandText.indexOf(u' ')))
+		{
+			commandJson = commandJson || commandText.first(commandSlash).contains(u'j');
+			commandText = commandText.sliced(commandSlash + 1);
+		}
+		if (!combined.isEmpty()) combined += "\n\n\n";
+		combined += respondToCommand(commandText, commandJson);
+	}
+	return combined;
+}
+
+bool isSameUser(QLocalSocket* socket) {
+	uid_t peerUserId = 0;
+	gid_t peerGroupId = 0;
+	return getpeereid(static_cast<int>(socket->socketDescriptor()), &peerUserId, &peerGroupId) == 0
+	    && peerUserId == getuid();
+}
+
+QLocalServer* listenOn(const QString& path) {
+	QLocalServer::removeServer(path);
+	auto* server = new QLocalServer(QCoreApplication::instance());
+	server->setSocketOptions(QLocalServer::UserAccessOption);
+	if (!server->listen(path)) {
+		std::fprintf(stderr, "MacShell: unable to listen on %s\n", qPrintable(path));
+		delete server;
+		return nullptr;
+	}
+	return server;
+}
+
+QString runtimeDirectory() {
+	auto directory = qEnvironmentVariable("XDG_RUNTIME_DIR");
+	return directory.isEmpty() ? QsPaths::defaultRuntimeDirectory() : directory;
+}
+
+QString newestInstanceDirectory() {
+	QDir hyprDirectory(QDir(runtimeDirectory()).filePath(QStringLiteral("hypr")));
+	auto instances = hyprDirectory.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time);
+	for (const auto& instance: instances) {
+		if (QFileInfo::exists(QDir(instance.filePath()).filePath(QStringLiteral(".socket.sock")))) {
+			return instance.filePath();
+		}
+	}
+	return {};
+}
+
+QString instanceDirectory(const QString& requestedInstance) {
+	auto signature = requestedInstance.isEmpty() ? qEnvironmentVariable("HYPRLAND_INSTANCE_SIGNATURE")
+	                                             : requestedInstance;
+	if (signature.isEmpty()) return newestInstanceDirectory();
+	return QDir(runtimeDirectory()).filePath(QStringLiteral("hypr/") + signature);
 }
 
 }
 
 QString hyprctlSocketPath() {
-	return QDir(QsPaths::defaultRuntimeDirectory()).filePath(QStringLiteral("quickshell/hyprctl.sock"));
+	return QDir(instanceDirectory({})).filePath(QStringLiteral(".socket.sock"));
 }
 
 void startHyprctlServer() {
-	static QLocalServer* server = nullptr;
-	if (server) return;
+	static bool started = false;
+	if (started) return;
+	started = true;
 
-	auto path = hyprctlSocketPath();
-	QDir().mkpath(QFileInfo(path).absolutePath());
-	QLocalServer::removeServer(path);
-
-	server = new QLocalServer(QCoreApplication::instance());
-	server->setSocketOptions(QLocalServer::UserAccessOption);
-	if (!server->listen(path)) {
-		qWarning() << "Could not start the hyprctl bridge at" << path;
-		return;
+	if (qEnvironmentVariableIsEmpty("XDG_RUNTIME_DIR")) {
+		qputenv("XDG_RUNTIME_DIR", QsPaths::defaultRuntimeDirectory().toLocal8Bit());
 	}
+	auto signature = QStringLiteral("macshell_%1_%2")
+	                     .arg(QDateTime::currentSecsSinceEpoch())
+	                     .arg(QCoreApplication::applicationPid());
+	qputenv("HYPRLAND_INSTANCE_SIGNATURE", signature.toLocal8Bit());
 
-	QObject::connect(server, &QLocalServer::newConnection, server, []() {
-		while (auto* socket = server->nextPendingConnection()) {
-			uid_t peerUserId = 0;
-			gid_t peerGroupId = 0;
-			if (getpeereid(static_cast<int>(socket->socketDescriptor()), &peerUserId, &peerGroupId) != 0
-			    || peerUserId != getuid())
-			{
-				socket->abort();
-				socket->deleteLater();
-				continue;
-			}
+	auto directory = instanceDirectory(signature);
+	QDir().mkpath(directory);
+	QFile::setPermissions(directory, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
 
-			QObject::connect(socket, &QLocalSocket::disconnected, socket, &QObject::deleteLater);
-			QObject::connect(socket, &QLocalSocket::readyRead, socket, [socket]() {
-				if (!socket->canReadLine()) return;
+	auto* requestServer = listenOn(QDir(directory).filePath(QStringLiteral(".socket.sock")));
+	auto* eventServer = listenOn(QDir(directory).filePath(QStringLiteral(".socket2.sock")));
 
-				QStringList arguments;
-				for (const auto& argument: QJsonDocument::fromJson(socket->readLine()).array()) {
-					arguments.append(argument.toString());
+	QObject::connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit, [directory] {
+		QDir(directory).removeRecursively();
+	});
+
+	if (requestServer) {
+		QObject::connect(requestServer, &QLocalServer::newConnection, requestServer, [requestServer] {
+			while (auto* socket = requestServer->nextPendingConnection()) {
+				if (!isSameUser(socket)) {
+					socket->abort();
+					socket->deleteLater();
+					continue;
 				}
 
-				socket->write(respond(arguments));
-				socket->flush();
-				socket->disconnectFromServer();
-			});
-		}
+				QObject::connect(socket, &QLocalSocket::disconnected, socket, &QObject::deleteLater);
+				QObject::connect(socket, &QLocalSocket::readyRead, socket, [socket] {
+					socket->write(respondToRequest(socket->readAll()));
+					socket->flush();
+					socket->disconnectFromServer();
+				});
+			}
+		});
+	}
+
+	if (eventServer) {
+		static QList<QPointer<QLocalSocket>> eventListeners;
+		QObject::connect(eventServer, &QLocalServer::newConnection, eventServer, [eventServer] {
+			while (auto* socket = eventServer->nextPendingConnection()) {
+				if (!isSameUser(socket)) {
+					socket->abort();
+					socket->deleteLater();
+					continue;
+				}
+				QObject::connect(socket, &QLocalSocket::disconnected, socket, &QObject::deleteLater);
+				eventListeners.append(socket);
+			}
+		});
+
+		QObject::connect(HyprlandState::instance(), &HyprlandState::rawEvent, eventServer, [](HyprlandIpcEvent* event) {
+			auto line = (event->name() + QStringLiteral(">>") + event->data() + u'\n').toUtf8();
+			eventListeners.removeIf([](const QPointer<QLocalSocket>& listener) { return listener.isNull(); });
+			for (const auto& listener: eventListeners) {
+				if (listener->state() == QLocalSocket::ConnectedState) listener->write(line);
+			}
+		});
+	}
+
+	macos::watchKeyboardLayout([] {
+		auto layout = macos::currentKeyboardLayout();
+		HyprlandState::instance()->emitRawEvent(
+		    QStringLiteral("activelayout"),
+		    KEYBOARD_NAME + u',' + (layout ? layout->name : QStringLiteral("Unknown"))
+		);
 	});
 }
 
 int runHyprctl(int argc, char** argv) {
 	QCoreApplication application(argc, argv);
 
-	QJsonArray arguments;
+	QString flags;
+	QString requestedInstance;
+	QString batch;
+	QStringList commandWords;
+
 	for (int index = 1; index < argc; ++index) {
 		auto argument = QString::fromLocal8Bit(argv[index]);
 		if (index == 1 && argument == QStringLiteral("hyprctl")) continue;
-		arguments.append(argument);
+
+		if (commandWords.isEmpty() && argument.startsWith(u'-') && argument.size() > 1) {
+			if (argument == QStringLiteral("-j")) flags += u'j';
+			else if (argument == QStringLiteral("-r")) flags += u'r';
+			else if (argument == QStringLiteral("-a")) flags += u'a';
+			else if (argument == QStringLiteral("--batch") && index + 1 < argc) batch = QString::fromLocal8Bit(argv[++index]);
+			else if ((argument == QStringLiteral("-i") || argument == QStringLiteral("--instance")) && index + 1 < argc) {
+				requestedInstance = QString::fromLocal8Bit(argv[++index]);
+			}
+			continue;
+		}
+		commandWords.append(argument);
 	}
 
+	auto request = flags + u'/' + (batch.isEmpty() ? commandWords.join(u' ') : BATCH_PREFIX + batch);
+
 	QLocalSocket socket;
-	socket.connectToServer(hyprctlSocketPath());
+	socket.connectToServer(QDir(instanceDirectory(requestedInstance)).filePath(QStringLiteral(".socket.sock")));
 	if (!socket.waitForConnected(SOCKET_TIMEOUT_MILLISECONDS)) {
-		std::fputs("hyprctl: MacShell is not running\n", stderr);
+		std::fputs("HYPRLAND_INSTANCE_SIGNATURE was not set! (Is MacShell running?)\n", stderr);
 		return 1;
 	}
 
-	socket.write(QJsonDocument(arguments).toJson(QJsonDocument::Compact) + '\n');
+	socket.write(request.toUtf8());
 	socket.flush();
 
 	QByteArray response;
@@ -235,6 +420,7 @@ int runHyprctl(int argc, char** argv) {
 	response += socket.readAll();
 
 	std::fwrite(response.constData(), 1, static_cast<size_t>(response.size()), stdout);
+	if (!response.endsWith('\n')) std::fputc('\n', stdout);
 	return response.startsWith("unknown request") ? 1 : 0;
 }
 

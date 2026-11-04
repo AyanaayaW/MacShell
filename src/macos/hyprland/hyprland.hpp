@@ -244,6 +244,7 @@ public:
 	void applyToplevels(const QList<macos::WindowDescription>& windows, quint32 frontWindowId);
 	void dispatch(const QString& request);
 	void activateWorkspace(HyprlandWorkspace* workspace);
+	void emitRawEvent(const QString& name, const QString& data);
 
 	[[nodiscard]] ObjectModel<HyprlandMonitor>* monitors() { return &this->mMonitors; }
 	[[nodiscard]] ObjectModel<HyprlandWorkspace>* workspaces() { return &this->mWorkspaces; }
@@ -269,7 +270,6 @@ private:
 	HyprlandState();
 
 	void refreshEverything();
-	void emitRawEvent(const QString& name, const QString& data);
 	void switchWorkspaceRelative(int offset);
 	[[nodiscard]] HyprlandWorkspace* workspaceForSpace(quint64 spaceId) const;
 

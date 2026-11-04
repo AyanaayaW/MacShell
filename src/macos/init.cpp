@@ -19,6 +19,7 @@
 #include "applications.hpp"
 #include "cocoa.hpp"
 #include "hyprland/hyprctl.hpp"
+#include "hyprland/keyboard_layouts.hpp"
 #include "icons.hpp"
 #include "input_region.hpp"
 #include "linux_files.hpp"
@@ -35,7 +36,14 @@ class MacPlugin: public QsEnginePlugin {
 	void init() override {
 		qs::macos::setAccessoryApp();
 		IconImageProvider::setPlatformIconResolver(qs::macos::resolveIcon);
-		qs::io::FileViewReader::setVirtualFileProvider(qs::macos::linuxPseudoFile);
+		qs::io::FileViewReader::setVirtualFileProvider([](const QString& path) -> std::optional<QByteArray> {
+			if (path.startsWith(QStringLiteral("/usr/share/X11/xkb/rules/"))
+			    && (path.endsWith(QStringLiteral("base.lst")) || path.endsWith(QStringLiteral("evdev.lst"))))
+			{
+				return qs::hyprland::macos::xkbRulesListing();
+			}
+			return qs::macos::linuxPseudoFile(path);
+		});
 		QsQuickWindowBase::setPlatformInputRegionHandler(qs::macos::applyInputRegion);
 		DesktopEntryManager::setPlatformEntryScanner([]() {
 			static std::once_flag watcherStarted;

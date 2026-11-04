@@ -5,6 +5,7 @@ qt_add_library(quickshell-hyprland STATIC
 	global_shortcuts.mm
 	hyprland_window.cpp
 	hyprctl.mm
+	keyboard_layouts.mm
 )
 
 qt_add_qml_module(quickshell-hyprland
