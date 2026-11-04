@@ -1,6 +1,7 @@
 #pragma once
 
 #include <mutex>
+#include <vector>
 
 #include <CoreAudio/CoreAudio.h>
 #include <qlist.h>
@@ -25,6 +26,10 @@ public:
 	[[nodiscard]] bool isRunning() const { return this->ioProcId != nullptr; }
 	[[nodiscard]] QList<float> takePeaks();
 
+	void enableSampleCapture(qsizetype capacity);
+	[[nodiscard]] std::vector<float> latestSamples(qsizetype count);
+	[[nodiscard]] double sampleRate() const { return this->nominalSampleRate; }
+
 	void recordBuffers(const AudioBufferList* buffers);
 
 private:
@@ -38,6 +43,11 @@ private:
 
 	std::mutex peaksMutex;
 	QList<float> accumulatedPeaks;
+
+	std::mutex samplesMutex;
+	std::vector<float> sampleRing;
+	size_t sampleWriteIndex = 0;
+	double nominalSampleRate = 48000.0;
 };
 
 }

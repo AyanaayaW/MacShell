@@ -17,7 +17,7 @@ cp build/src/quickshell "$bundled_executable"
 ln -sf quickshell "$bundle_contents/MacOS/qs"
 ln -sf quickshell "$bundle_contents/MacOS/notify-send"
 ln -sf quickshell "$bundle_contents/MacOS/hyprctl"
-for compat_command in loginctl systemctl brightnessctl wpctl pactl nmcli wl-copy wl-paste xdg-open cliphist swww hyprpicker grim; do
+for compat_command in loginctl systemctl brightnessctl wpctl pactl nmcli wl-copy wl-paste xdg-open cliphist swww hyprpicker grim nproc; do
 	ln -sf quickshell "$bundle_contents/MacOS/$compat_command"
 done
 sed "s/@VERSION@/$version/g" "$packaging_directory/Info.plist" >"$bundle_contents/Info.plist"

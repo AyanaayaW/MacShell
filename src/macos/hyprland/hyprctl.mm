@@ -1,6 +1,7 @@
 #include "hyprctl.hpp"
 #include <cstdio>
 #include <cstdlib>
+#include <signal.h>
 #include <unistd.h>
 
 #include <qcoreapplication.h>
@@ -308,6 +309,19 @@ QString instanceDirectory(const QString& requestedInstance) {
 	return QDir(runtimeDirectory()).filePath(QStringLiteral("hypr/") + signature);
 }
 
+}
+
+bool otherShellInstanceRunning() {
+	QDir hyprDirectory(QDir(runtimeDirectory()).filePath(QStringLiteral("hypr")));
+	auto ownProcessId = QCoreApplication::applicationPid();
+	for (const auto& instance: hyprDirectory.entryList({QStringLiteral("macshell_*")}, QDir::Dirs)) {
+		bool isNumber = false;
+		auto processId = instance.section(u'_', -1).toLongLong(&isNumber);
+		if (!isNumber || processId == ownProcessId) continue;
+		if (kill(static_cast<pid_t>(processId), 0) == 0) return true;
+		QDir(hyprDirectory.filePath(instance)).removeRecursively();
+	}
+	return false;
 }
 
 QString hyprctlSocketPath() {

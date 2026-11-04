@@ -1,5 +1,8 @@
 #include "font_aliases.hpp"
 
+#include <array>
+#include <utility>
+
 #include <qdiriterator.h>
 #include <qfile.h>
 #include <qfileinfo.h>
@@ -35,7 +38,23 @@ QHash<QString, QString> installedFamiliesByKey() {
 
 }
 
+void aliasGenericFontFamilies() {
+	static const std::array<std::pair<const char*, const char*>, 6> genericFamilies {{
+	    {"Monospace", "Menlo"},
+	    {"monospace", "Menlo"},
+	    {"Sans Serif", "Helvetica Neue"},
+	    {"sans-serif", "Helvetica Neue"},
+	    {"Serif", "Times New Roman"},
+	    {"serif", "Times New Roman"},
+	}};
+	for (const auto& [genericName, macFamily]: genericFamilies) {
+		QFont::insertSubstitution(QString::fromLatin1(genericName), QString::fromLatin1(macFamily));
+	}
+}
+
 void aliasConfigFontFamilies(const QString& configRoot) {
+	aliasGenericFontFamilies();
+
 	static const QRegularExpression quotedName(QStringLiteral("[\"']([A-Za-z][A-Za-z0-9 ._-]{2,48})[\"']"));
 	static QSet<QString> aliasedNames;
 

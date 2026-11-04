@@ -24,6 +24,10 @@ PendingRegion::PendingRegion(QObject* parent): QObject(parent) {
 	QObject::connect(this, &PendingRegion::topRightRadiusChanged, this, &PendingRegion::changed);
 	QObject::connect(this, &PendingRegion::bottomLeftRadiusChanged, this, &PendingRegion::changed);
 	QObject::connect(this, &PendingRegion::bottomRightRadiusChanged, this, &PendingRegion::changed);
+	QObject::connect(this, &PendingRegion::topLeftCornerChanged, this, &PendingRegion::changed);
+	QObject::connect(this, &PendingRegion::topRightCornerChanged, this, &PendingRegion::changed);
+	QObject::connect(this, &PendingRegion::bottomLeftCornerChanged, this, &PendingRegion::changed);
+	QObject::connect(this, &PendingRegion::bottomRightCornerChanged, this, &PendingRegion::changed);
 	QObject::connect(this, &PendingRegion::childrenChanged, this, &PendingRegion::changed);
 }
 
@@ -170,10 +174,12 @@ QRegion PendingRegion::build() const {
 	}
 
 	if (this->mShape == RegionShape::Rect && !region.isEmpty()) {
-		auto tl = std::max(this->topLeftRadius(), 0);
-		auto tr = std::max(this->topRightRadius(), 0);
-		auto bl = std::max(this->bottomLeftRadius(), 0);
-		auto br = std::max(this->bottomRightRadius(), 0);
+		auto roundsInward = [](CornerState::Enum state) { return state == CornerState::Normal; };
+		auto tl = roundsInward(this->mTopLeftCorner) ? std::max(this->topLeftRadius(), 0) : 0;
+		auto tr = roundsInward(this->mTopRightCorner) ? std::max(this->topRightRadius(), 0) : 0;
+		auto bl = roundsInward(this->mBottomLeftCorner) ? std::max(this->bottomLeftRadius(), 0) : 0;
+		auto br = roundsInward(this->mBottomRightCorner) ? std::max(this->bottomRightRadius(), 0) : 0;
+		auto bounds = region.boundingRect();
 
 		if (tl > 0 || tr > 0 || bl > 0 || br > 0) {
 			auto rect = region.boundingRect();
@@ -221,6 +227,28 @@ QRegion PendingRegion::build() const {
 				region -= box - (ellipse & box);
 			}
 		}
+
+		auto addFillet = [&region](CornerState::Enum state, qint32 radius, int cornerX, int cornerY, int horizontalSign, int verticalSign) {
+			if (radius <= 0 || (state != CornerState::InvertX && state != CornerState::InvertY)) return;
+
+			auto outwardX = state == CornerState::InvertX ? horizontalSign : -horizontalSign;
+			auto outwardY = state == CornerState::InvertX ? -verticalSign : verticalSign;
+			auto farX = cornerX + outwardX * radius;
+			auto farY = cornerY + outwardY * radius;
+
+			auto box = QRegion(QRect(QPoint(std::min(cornerX, farX), std::min(cornerY, farY)), QSize(radius, radius)));
+			auto arc = QRegion(farX - radius, farY - radius, radius * 2, radius * 2, QRegion::Ellipse);
+			region += box - (arc & box);
+		};
+
+		auto left = bounds.x();
+		auto top = bounds.y();
+		auto right = bounds.x() + bounds.width();
+		auto bottom = bounds.y() + bounds.height();
+		addFillet(this->mTopLeftCorner, this->topLeftRadius(), left, top, -1, -1);
+		addFillet(this->mTopRightCorner, this->topRightRadius(), right, top, 1, -1);
+		addFillet(this->mBottomLeftCorner, this->bottomLeftRadius(), left, bottom, -1, 1);
+		addFillet(this->mBottomRightCorner, this->bottomRightRadius(), right, bottom, 1, 1);
 	}
 
 	for (const auto& childRegion: this->mRegions) {

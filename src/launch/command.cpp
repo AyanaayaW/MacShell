@@ -82,6 +82,73 @@ QString bundledDefaultConfig() {
 	auto configPath = QDir(QString::fromUtf8(resourcesPath.data())).filePath(QStringLiteral("default-config/shell.qml"));
 	return QFileInfo(configPath).isFile() ? QFileInfo(configPath).canonicalFilePath() : QString();
 }
+
+QString lastConfigRecordPath() {
+	return QDir::home().filePath(QStringLiteral("Library/Application Support/MacShell/last-config"));
+}
+
+QString shellFileFor(const QString& nameOrPath) {
+	auto candidate = nameOrPath.trimmed();
+	if (candidate.startsWith(u'~')) candidate = QDir::homePath() + candidate.sliced(1);
+	if (candidate.isEmpty()) return {};
+
+	QFileInfo info(candidate);
+	if (info.isDir()) info = QFileInfo(QDir(candidate).filePath(QStringLiteral("shell.qml")));
+	if (info.isFile()) return info.canonicalFilePath();
+
+	for (const auto& baseDir: configBaseDirs()) {
+		auto namedShell = QDir(QDir(baseDir).filePath(candidate)).filePath(QStringLiteral("shell.qml"));
+		if (QFileInfo(namedShell).isFile()) return QFileInfo(namedShell).canonicalFilePath();
+	}
+	return {};
+}
+
+QString configuredDefaultConfig() {
+	auto configHome = qEnvironmentVariable("XDG_CONFIG_HOME");
+	if (configHome.isEmpty()) configHome = QDir::home().filePath(QStringLiteral(".config"));
+
+	QFile settings(QDir(configHome).filePath(QStringLiteral("macshell/settings.conf")));
+	if (!settings.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+	while (!settings.atEnd()) {
+		auto line = QString::fromUtf8(settings.readLine()).trimmed();
+		if (!line.startsWith(QStringLiteral("default_config"))) continue;
+		auto separator = line.indexOf(u'=');
+		if (separator != -1) return shellFileFor(line.sliced(separator + 1));
+	}
+	return {};
+}
+
+QString onlyInstalledConfig() {
+	QStringList shells;
+	for (const auto& baseDir: configBaseDirs()) {
+		for (const auto& entry: QDir(baseDir).entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+			auto shell = QDir(entry.filePath()).filePath(QStringLiteral("shell.qml"));
+			if (QFileInfo(shell).isFile()) shells.append(shell);
+		}
+	}
+	return shells.size() == 1 ? QFileInfo(shells.first()).canonicalFilePath() : QString();
+}
+
+QString macDefaultConfig() {
+	if (auto configured = configuredDefaultConfig(); !configured.isEmpty()) return configured;
+
+	QFile record(lastConfigRecordPath());
+	if (record.open(QIODevice::ReadOnly | QIODevice::Text)) {
+		auto lastShell = QString::fromUtf8(record.readAll()).trimmed();
+		if (QFileInfo(lastShell).isFile()) return lastShell;
+	}
+
+	if (auto only = onlyInstalledConfig(); !only.isEmpty()) return only;
+	return bundledDefaultConfig();
+}
+
+void rememberLaunchedConfig(const QString& shellPath) {
+	auto canonical = QFileInfo(shellPath).canonicalFilePath();
+	if (canonical.isEmpty() || canonical == bundledDefaultConfig()) return;
+	QDir().mkpath(QFileInfo(lastConfigRecordPath()).absolutePath());
+	QFile record(lastConfigRecordPath());
+	if (record.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) record.write(canonical.toUtf8());
+}
 #endif
 
 QString locateNamedConfig(const QString& name) {
@@ -152,7 +219,7 @@ int locateConfigFile(CommandState& cmd, QString& path) {
 			path = locateNamedConfig(name);
 
 #ifdef __APPLE__
-			if (path.isEmpty() && name == "default") path = bundledDefaultConfig();
+			if (path.isEmpty() && name == "default") path = macDefaultConfig();
 #endif
 
 			if (path.isEmpty()) {
@@ -499,6 +566,10 @@ int launchFromCommand(CommandState& cmd) {
 
 	auto r = locateConfigFile(cmd, configPath);
 	if (r != 0) return r;
+
+#ifdef __APPLE__
+	if (!cmd.config.path->isEmpty() || !cmd.config.name->isEmpty()) rememberLaunchedConfig(configPath);
+#endif
 
 	{
 		InstanceLockInfo info;

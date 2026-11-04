@@ -60,21 +60,24 @@ class MacPlugin: public QsEnginePlugin {
 			return qs::macos::scanInstalledApplications();
 		});
 
+		auto sharesSessionWithAnotherShell = qs::hyprland::ipc::otherShellInstanceRunning();
 		qs::hyprland::ipc::startHyprctlServer();
 
 		auto settings = qs::macos::readSettings();
 		qs::hyprland::global_shortcuts::setSuperModifier(qs::macos::carbonModifierNamed(settings.superKey));
 		qs::hyprland::global_shortcuts::HotKeyRegistry::instance();
-		if (settings.hyprlandAutostart) qs::hyprland::global_shortcuts::runHyprlandAutostart();
+		if (settings.hyprlandAutostart && !sharesSessionWithAnotherShell) {
+			qs::hyprland::global_shortcuts::runHyprlandAutostart();
+		}
 		if (settings.mirrorNotifications) qs::service::notifications::startSystemNotificationMirror();
 		qs::macos::applyLaunchAtLogin(settings.launchAtLogin);
 
 		if (settings.hideSystemUi) {
-			qs::macos::hideSystemUi();
+			if (!sharesSessionWithAnotherShell) qs::macos::hideSystemUi();
 			QObject::connect(qApp, &QCoreApplication::aboutToQuit, [] {
-				qs::macos::restoreSystemUi();
+				if (!qs::hyprland::ipc::otherShellInstanceRunning()) qs::macos::restoreSystemUi();
 			});
-		} else {
+		} else if (!sharesSessionWithAnotherShell) {
 			qs::macos::restoreSystemUi();
 		}
 	}

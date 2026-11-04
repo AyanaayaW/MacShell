@@ -103,7 +103,7 @@ private:
 	QVariant mDefinition;
 	QVariant mTheme;
 	QVariant mRepository;
-	CodeHighlighter* mHighlighter = nullptr;
+	QPointer<CodeHighlighter> mHighlighter;
 };
 
 }

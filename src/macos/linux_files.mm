@@ -8,6 +8,9 @@
 #include <qbytearray.h>
 #include <qhash.h>
 #include <qstring.h>
+#include <net/if.h>
+#include <net/route.h>
+#include <sys/socket.h>
 #include <sys/sysctl.h>
 #include <sys/utsname.h>
 #include <unistd.h>
@@ -171,6 +174,38 @@ QByteArray processorStatistics() {
 	     + perProcessor + "btime " + QByteArray::number(static_cast<qint64>(bootTime.tv_sec)) + '\n';
 }
 
+QByteArray networkDevices() {
+	int request[] = {CTL_NET, PF_ROUTE, 0, 0, NET_RT_IFLIST2, 0};
+	size_t tableSize = 0;
+	if (sysctl(request, 6, nullptr, &tableSize, nullptr, 0) != 0) return {};
+	QByteArray table(static_cast<qsizetype>(tableSize), '\0');
+	if (sysctl(request, 6, table.data(), &tableSize, nullptr, 0) != 0) return {};
+
+	QByteArray listing = "Inter-|   Receive                                                |  Transmit\n"
+	                     " face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs "
+	                     "drop fifo colls carrier compressed\n";
+	for (size_t offset = 0; offset < tableSize;) {
+		const auto* header = reinterpret_cast<const if_msghdr*>(table.constData() + offset);
+		if (header->ifm_msglen == 0) break;
+		if (header->ifm_type == RTM_IFINFO2) {
+			const auto* info = reinterpret_cast<const if_msghdr2*>(header);
+			std::array<char, IF_NAMESIZE> name {};
+			if (if_indextoname(info->ifm_index, name.data())) {
+				const auto& data = info->ifm_data;
+				auto interfaceName = QByteArray(name.data()) == "lo0" ? QByteArray("lo") : QByteArray(name.data());
+				listing += interfaceName.rightJustified(6, ' ') + ": " + QByteArray::number(data.ifi_ibytes) + ' '
+				         + QByteArray::number(data.ifi_ipackets) + ' ' + QByteArray::number(data.ifi_ierrors) + ' '
+				         + QByteArray::number(data.ifi_iqdrops) + " 0 0 0 " + QByteArray::number(data.ifi_imcasts) + ' '
+				         + QByteArray::number(data.ifi_obytes) + ' ' + QByteArray::number(data.ifi_opackets) + ' '
+				         + QByteArray::number(data.ifi_oerrors) + " 0 0 " + QByteArray::number(data.ifi_collisions)
+				         + " 0 0\n";
+			}
+		}
+		offset += header->ifm_msglen;
+	}
+	return listing;
+}
+
 QByteArray processorInfo() {
 	int processorCount = 0;
 	size_t size = sizeof(processorCount);
@@ -201,6 +236,7 @@ std::optional<QByteArray> linuxPseudoFile(const QString& path) {
 	    {QStringLiteral("/proc/meminfo"), memoryInfo},
 	    {QStringLiteral("/proc/stat"), processorStatistics},
 	    {QStringLiteral("/proc/cpuinfo"), processorInfo},
+	    {QStringLiteral("/proc/net/dev"), networkDevices},
 	    {QStringLiteral("/sys/class/dmi/id/sys_vendor"), [] { return QByteArray("Apple Inc.\n"); }},
 	    {QStringLiteral("/sys/class/dmi/id/product_name"), [] { return sysctlString("hw.model") + '\n'; }},
 	};

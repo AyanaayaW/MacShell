@@ -50,7 +50,7 @@ endif()
 if (APPLE)
 	add_subdirectory(macos)
 
-	set(MACSHELL_COMMAND_LINKS qs notify-send hyprctl loginctl systemctl brightnessctl wpctl pactl nmcli wl-copy wl-paste xdg-open cliphist swww hyprpicker grim)
+	set(MACSHELL_COMMAND_LINKS qs notify-send hyprctl loginctl systemctl brightnessctl wpctl pactl nmcli wl-copy wl-paste xdg-open cliphist swww hyprpicker grim nproc)
 	foreach(command_link IN LISTS MACSHELL_COMMAND_LINKS)
 		add_custom_command(TARGET quickshell POST_BUILD
 			COMMAND ${CMAKE_COMMAND} -E create_symlink quickshell $<TARGET_FILE_DIR:quickshell>/${command_link}

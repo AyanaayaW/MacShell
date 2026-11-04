@@ -50,7 +50,38 @@ bool LevelMeter::start(AudioObjectID deviceId, AudioDirection direction, qsizety
 		return false;
 	}
 
+	AudioObjectPropertyAddress rateAddress {
+	    kAudioDevicePropertyNominalSampleRate,
+	    kAudioObjectPropertyScopeGlobal,
+	    kAudioObjectPropertyElementMain,
+	};
+	Float64 rate = 0;
+	UInt32 rateSize = sizeof(rate);
+	if (AudioObjectGetPropertyData(this->meteredDeviceId, &rateAddress, 0, nullptr, &rateSize, &rate) == noErr && rate > 0) {
+		this->nominalSampleRate = rate;
+	}
+
 	return true;
+}
+
+void LevelMeter::enableSampleCapture(qsizetype capacity) {
+	std::lock_guard lock(this->samplesMutex);
+	this->sampleRing.assign(static_cast<size_t>(std::max<qsizetype>(capacity, 1)), 0.0F);
+	this->sampleWriteIndex = 0;
+}
+
+std::vector<float> LevelMeter::latestSamples(qsizetype count) {
+	std::lock_guard lock(this->samplesMutex);
+	auto requested = static_cast<size_t>(std::max<qsizetype>(count, 0));
+	std::vector<float> samples(requested, 0.0F);
+	if (this->sampleRing.empty()) return samples;
+
+	auto available = std::min(requested, this->sampleRing.size());
+	for (size_t index = 0; index < available; ++index) {
+		auto ringIndex = (this->sampleWriteIndex + this->sampleRing.size() - available + index) % this->sampleRing.size();
+		samples[requested - available + index] = this->sampleRing[ringIndex];
+	}
+	return samples;
 }
 
 bool LevelMeter::startOutputTap(AudioObjectID deviceId) {
@@ -135,6 +166,24 @@ void LevelMeter::recordBuffers(const AudioBufferList* buffers) {
 		}
 
 		channelOffset += interleavedChannels;
+	}
+
+	{
+		std::lock_guard samplesLock(this->samplesMutex);
+		if (!this->sampleRing.empty() && buffers->mNumberBuffers > 0 && buffers->mBuffers[0].mData) {
+			const auto& firstBuffer = buffers->mBuffers[0];
+			auto interleavedChannels = std::max<UInt32>(firstBuffer.mNumberChannels, 1);
+			const auto* samples = static_cast<const float*>(firstBuffer.mData);
+			auto frameCount = firstBuffer.mDataByteSize / (sizeof(float) * interleavedChannels);
+			for (UInt32 frame = 0; frame < frameCount; ++frame) {
+				float mixed = 0;
+				for (UInt32 channel = 0; channel < interleavedChannels; ++channel) {
+					mixed += samples[frame * interleavedChannels + channel];
+				}
+				this->sampleRing[this->sampleWriteIndex] = mixed / static_cast<float>(interleavedChannels);
+				this->sampleWriteIndex = (this->sampleWriteIndex + 1) % this->sampleRing.size();
+			}
+		}
 	}
 
 	std::lock_guard lock(this->peaksMutex);

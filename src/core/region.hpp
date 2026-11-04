@@ -23,6 +23,20 @@ Q_ENUM_NS(Enum);
 
 } // namespace RegionShape
 
+namespace CornerState { // NOLINT
+Q_NAMESPACE;
+QML_ELEMENT;
+
+enum Enum : qint8 {
+	Flat = -1,
+	Normal = 0,
+	InvertX = 1,
+	InvertY = 2,
+};
+Q_ENUM_NS(Enum);
+
+} // namespace CornerState
+
 ///! Intersection strategy for Regions.
 /// See @@Region.intersection.
 namespace Intersection { // NOLINT
@@ -88,6 +102,10 @@ class PendingRegion: public QObject {
 	///
 	/// Defaults to @@radius, and may be reset by assigning `undefined`.
 	Q_PROPERTY(qint32 bottomRightRadius READ bottomRightRadius WRITE setBottomRightRadius RESET resetBottomRightRadius NOTIFY bottomRightRadiusChanged);
+	Q_PROPERTY(CornerState::Enum topLeftCorner MEMBER mTopLeftCorner NOTIFY topLeftCornerChanged);
+	Q_PROPERTY(CornerState::Enum topRightCorner MEMBER mTopRightCorner NOTIFY topRightCornerChanged);
+	Q_PROPERTY(CornerState::Enum bottomLeftCorner MEMBER mBottomLeftCorner NOTIFY bottomLeftCornerChanged);
+	Q_PROPERTY(CornerState::Enum bottomRightCorner MEMBER mBottomRightCorner NOTIFY bottomRightCornerChanged);
 	// clang-format on
 
 	/// Regions to apply on top of this region.
@@ -156,6 +174,10 @@ signals:
 	void topRightRadiusChanged();
 	void bottomLeftRadiusChanged();
 	void bottomRightRadiusChanged();
+	void topLeftCornerChanged();
+	void topRightCornerChanged();
+	void bottomLeftCornerChanged();
+	void bottomRightCornerChanged();
 	void childrenChanged();
 
 	/// Triggered when the region's geometry changes.
@@ -195,6 +217,10 @@ private:
 	qint32 mTopRightRadius = 0;
 	qint32 mBottomLeftRadius = 0;
 	qint32 mBottomRightRadius = 0;
+	CornerState::Enum mTopLeftCorner = CornerState::Normal;
+	CornerState::Enum mTopRightCorner = CornerState::Normal;
+	CornerState::Enum mBottomLeftCorner = CornerState::Normal;
+	CornerState::Enum mBottomRightCorner = CornerState::Normal;
 	quint8 mCornerOverrides = 0;
 
 	QList<PendingRegion*> mRegions;

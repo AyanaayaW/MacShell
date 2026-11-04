@@ -148,7 +148,7 @@ void CodeHighlighter::highlightBlock(const QString& text) {
 void SyntaxHighlighter::setTextEdit(QQuickItem* textEdit) {
 	if (textEdit == this->mTextEdit) return;
 	this->mTextEdit = textEdit;
-	delete this->mHighlighter;
+	if (this->mHighlighter) this->mHighlighter->deleteLater();
 	this->mHighlighter = nullptr;
 
 	if (textEdit) {

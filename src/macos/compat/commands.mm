@@ -43,6 +43,7 @@ constexpr std::array COMPAT_COMMANDS {
 	NamedCommand {"swww", runSwww},
 	NamedCommand {"hyprpicker", runHyprpicker},
 	NamedCommand {"grim", runGrim},
+	NamedCommand {"nproc", runNproc},
 };
 
 std::string_view programName(const char* path) {
@@ -194,6 +195,11 @@ void exposeCompatCommandsOnPath() {
 		}
 	}
 	setenv("PATH", searchPath.c_str(), 1);
+}
+
+int runNproc([[maybe_unused]] int argc, [[maybe_unused]] char** argv) {
+	std::printf("%ld\n", static_cast<long>(NSProcessInfo.processInfo.activeProcessorCount));
+	return 0;
 }
 
 int runLoginctl(int argc, char** argv) {
