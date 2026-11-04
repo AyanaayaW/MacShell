@@ -14,6 +14,7 @@ version=$(build/src/quickshell --version | awk '{print $2}')
 rm -rf "$app_bundle"
 mkdir -p "$bundle_contents/MacOS"
 cp build/src/quickshell "$bundled_executable"
+ln -sf quickshell "$bundle_contents/MacOS/qs"
 ln -sf quickshell "$bundle_contents/MacOS/notify-send"
 ln -sf quickshell "$bundle_contents/MacOS/hyprctl"
 for compat_command in loginctl systemctl brightnessctl wpctl pactl nmcli wl-copy wl-paste xdg-open cliphist swww hyprpicker grim; do

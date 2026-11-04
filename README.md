@@ -1,4 +1,6 @@
 # Quickshell
+
+**On macOS?** See [MACOS.md](MACOS.md) for MacShell, the macOS build of Quickshell.
 See the [website](https://quickshell.outfoxxed.me) for more information
 and installation instructions.
 
