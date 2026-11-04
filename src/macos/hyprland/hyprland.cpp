@@ -88,7 +88,7 @@ void HyprlandMonitor::setActiveWorkspace(HyprlandWorkspace* workspace) {
 }
 
 void HyprlandMonitor::rebuildIpcObject() {
-	this->mLastIpcObject = {
+	QVariantMap ipcObject = {
 	    {QStringLiteral("id"), this->bId.value()},
 	    {QStringLiteral("name"), this->bName.value()},
 	    {QStringLiteral("description"), this->bDescription.value()},
@@ -101,7 +101,17 @@ void HyprlandMonitor::rebuildIpcObject() {
 	    {QStringLiteral("scale"), this->bScale.value()},
 	    {QStringLiteral("focused"), this->bFocused.value()},
 	    {QStringLiteral("activeWorkspace"), workspaceReference(this->bActiveWorkspace.value())},
+	    {QStringLiteral("specialWorkspace"), QVariantMap {{QStringLiteral("id"), 0}, {QStringLiteral("name"), QString()}}},
+	    {QStringLiteral("refreshRate"), 60.0},
+	    {QStringLiteral("transform"), 0},
+	    {QStringLiteral("disabled"), false},
+	    {QStringLiteral("dpmsStatus"), true},
+	    {QStringLiteral("vrr"), false},
+	    {QStringLiteral("activelyTearing"), false},
+	    {QStringLiteral("reserved"), QVariantList {0, 0, 0, 0}},
 	};
+	if (ipcObject == this->mLastIpcObject) return;
+	this->mLastIpcObject = ipcObject;
 	emit this->lastIpcObjectChanged();
 }
 
@@ -124,14 +134,17 @@ void HyprlandWorkspace::update(
 
 void HyprlandWorkspace::rebuildIpcObject(int windowCount) {
 	auto* monitor = this->bMonitor.value();
-	this->mLastIpcObject = {
+	QVariantMap ipcObject = {
 	    {QStringLiteral("id"), this->bId.value()},
 	    {QStringLiteral("name"), this->bName.value()},
 	    {QStringLiteral("monitor"), monitor ? monitor->bindableName().value() : QString()},
 	    {QStringLiteral("monitorID"), monitor ? monitor->bindableId().value() : -1},
 	    {QStringLiteral("windows"), windowCount},
 	    {QStringLiteral("hasfullscreen"), this->bHasFullscreen.value()},
+	    {QStringLiteral("ispersistent"), false},
 	};
+	if (ipcObject == this->mLastIpcObject) return;
+	this->mLastIpcObject = ipcObject;
 	emit this->lastIpcObjectChanged();
 }
 
@@ -213,9 +226,15 @@ void HyprlandState::refreshEverything() {
 }
 
 void HyprlandState::emitRawEvent(const QString& name, const QString& data) {
-	auto* event = new HyprlandIpcEvent(name, data, this);
-	emit this->rawEvent(event);
-	event->deleteLater();
+	QMetaObject::invokeMethod(
+	    this,
+	    [this, name, data] {
+		    auto* event = new HyprlandIpcEvent(name, data, this);
+		    emit this->rawEvent(event);
+		    event->deleteLater();
+	    },
+	    Qt::QueuedConnection
+	);
 }
 
 void HyprlandState::refreshMonitors() {
