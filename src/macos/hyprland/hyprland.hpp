@@ -242,7 +242,7 @@ public:
 	void refreshWorkspaces();
 	void refreshToplevels();
 	void applyToplevels(const QList<macos::WindowDescription>& windows, quint32 frontWindowId);
-	void dispatch(const QString& request);
+	bool dispatch(const QString& request);
 	void activateWorkspace(HyprlandWorkspace* workspace);
 	void emitRawEvent(const QString& name, const QString& data);
 

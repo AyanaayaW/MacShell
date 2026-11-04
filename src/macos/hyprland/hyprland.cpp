@@ -479,7 +479,7 @@ void HyprlandState::switchWorkspaceRelative(int offset) {
 	this->activateWorkspace(this->mWorkspaces.valueList().at(targetIndex));
 }
 
-void HyprlandState::dispatch(const QString& request) {
+bool HyprlandState::dispatch(const QString& request) {
 	auto trimmedRequest = request.trimmed();
 	auto separatorIndex = trimmedRequest.indexOf(u' ');
 	auto command = separatorIndex == -1 ? trimmedRequest : trimmedRequest.first(separatorIndex);
@@ -487,7 +487,7 @@ void HyprlandState::dispatch(const QString& request) {
 
 	if (command == QStringLiteral("exec")) {
 		macos::launchDetached(argument);
-		return;
+		return true;
 	}
 
 	if (command == QStringLiteral("workspace") || command == QStringLiteral("focusworkspaceoncurrentmonitor")) {
@@ -503,7 +503,7 @@ void HyprlandState::dispatch(const QString& request) {
 		auto number = relativeArgument.toInt(&isNumber);
 		if (!isNumber) {
 			qCWarning(logHyprland) << "Unsupported workspace target on macOS:" << argument;
-			return;
+			return false;
 		}
 
 		if (relativeArgument.startsWith(u'+') || relativeArgument.startsWith(u'-')) {
@@ -511,12 +511,13 @@ void HyprlandState::dispatch(const QString& request) {
 		} else {
 			this->activateWorkspace(this->mWorkspacesById.value(number));
 		}
-		return;
+		return true;
 	}
 
-	if (this->dispatchWindowAction(command, argument)) return;
+	if (this->dispatchWindowAction(command, argument)) return true;
 
 	qCWarning(logHyprland) << "Unsupported Hyprland dispatcher on macOS:" << command;
+	return false;
 }
 
 namespace {

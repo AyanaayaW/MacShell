@@ -133,8 +133,7 @@ QByteArray respondToCommand(const QString& commandLine, bool json) {
 	auto* state = HyprlandState::instance();
 
 	if (command == QStringLiteral("dispatch")) {
-		state->dispatch(argument);
-		return "ok";
+		return state->dispatch(argument) ? "ok" : "Invalid dispatcher";
 	}
 	if (command == QStringLiteral("monitors")) {
 		return formatted(json, monitorObjects(), describeList(QStringLiteral("Monitor"), monitorObjects()));
