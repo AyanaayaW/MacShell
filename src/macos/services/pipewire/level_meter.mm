@@ -17,8 +17,11 @@ LevelMeter::~LevelMeter() { this->stop(); }
 
 bool LevelMeter::start(AudioObjectID deviceId, AudioDirection direction, qsizetype channelCount) {
 	this->stop();
-	this->channelCount = std::max<qsizetype>(channelCount, 1);
-	this->accumulatedPeaks = QList<float>(this->channelCount, 0.0F);
+	{
+		std::lock_guard lock(this->peaksMutex);
+		this->channelCount = std::max<qsizetype>(channelCount, 1);
+		this->accumulatedPeaks = QList<float>(this->channelCount, 0.0F);
+	}
 
 	if (direction == AudioDirection::Output) {
 		if (!this->startOutputTap(deviceId)) return false;

@@ -16,6 +16,7 @@ install_qml_module(quickshell-bluetooth)
 target_link_libraries(quickshell-bluetooth PRIVATE
 	Qt::Qml
 	"-framework IOBluetooth"
+	"-framework CoreBluetooth"
 	"-framework IOKit"
 	"-framework Foundation"
 )

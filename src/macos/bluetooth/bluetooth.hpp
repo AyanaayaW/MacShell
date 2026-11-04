@@ -234,6 +234,7 @@ signals:
 private:
 	BluetoothManager();
 
+	void initialize();
 	void refresh();
 
 	BluetoothAdapter* mAdapter = nullptr;

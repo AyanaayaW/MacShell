@@ -406,7 +406,8 @@ private:
 	bool mEnabled = true;
 	QVector<float> mPeaks;
 	float mPeak = 0;
-	std::unique_ptr<coreaudio::LevelMeter> mMeter;
+	std::shared_ptr<coreaudio::LevelMeter> mMeter;
+	quint64 mMeterGeneration = 0;
 	QTimer mSampleTimer;
 };
 

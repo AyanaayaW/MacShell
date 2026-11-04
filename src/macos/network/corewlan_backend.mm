@@ -166,7 +166,7 @@ void postToBackend(CoreWlanBackend* backend, Callback callback) {
 - (void)startPathMonitor {
 	QPointer<CoreWlanBackend> backend = self->owner;
 	self.pathMonitor = nw_path_monitor_create();
-	nw_path_monitor_set_queue(self.pathMonitor, dispatch_get_main_queue());
+	nw_path_monitor_set_queue(self.pathMonitor, self.workQueue);
 	nw_path_monitor_set_update_handler(self.pathMonitor, ^(nw_path_t path) {
 		using qs::network::NetworkConnectivity;
 		auto connectivity = NetworkConnectivity::Unknown;
@@ -176,7 +176,10 @@ void postToBackend(CoreWlanBackend* backend, Callback callback) {
 		case nw_path_status_unsatisfied: connectivity = NetworkConnectivity::None; break;
 		default: break;
 		}
-		if (backend) backend->applyConnectivity(connectivity);
+		if (!backend) return;
+		postToBackend(backend, [backend, connectivity]() {
+			if (backend) backend->applyConnectivity(connectivity);
+		});
 	});
 	nw_path_monitor_start(self.pathMonitor);
 }

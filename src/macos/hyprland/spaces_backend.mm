@@ -315,7 +315,6 @@ SystemEventObserver::SystemEventObserver(
     std::function<void()> onFocusChanged
 ) {
 	NSNotificationCenter* workspaceCenter = NSWorkspace.sharedWorkspace.notificationCenter;
-	NSOperationQueue* mainQueue = NSOperationQueue.mainQueue;
 
 	auto spacesHandler = std::make_shared<std::function<void()>>(std::move(onSpacesChanged));
 	auto focusHandler = std::make_shared<std::function<void()>>(std::move(onFocusChanged));
@@ -323,7 +322,7 @@ SystemEventObserver::SystemEventObserver(
 	auto observe = [&](NSNotificationCenter* center, NSNotificationName name, auto handler) {
 		id token = [center addObserverForName:name
 		                               object:nil
-		                                queue:mainQueue
+		                                queue:nil
 		                           usingBlock:^(NSNotification*) { (*handler)(); }];
 		this->registrations.append(Registration {
 		    .notificationCenter = (__bridge void*)center,

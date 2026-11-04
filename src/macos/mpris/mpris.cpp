@@ -1,8 +1,12 @@
 #include "mpris.hpp"
 #include <algorithm>
+#include <dispatch/dispatch.h>
+#include <functional>
+#include <memory>
 #include <cmath>
 #include <utility>
 
+#include <qcoreapplication.h>
 #include <qdatetime.h>
 #include <qlist.h>
 #include <qlogging.h>
@@ -26,6 +30,12 @@ constexpr auto POLL_INTERVAL_MILLISECONDS = 2000;
 constexpr auto REFRESH_DEBOUNCE_MILLISECONDS = 150;
 constexpr qreal POSITION_DRIFT_TOLERANCE_SECONDS = 1.5;
 constexpr qreal MICROSECONDS_PER_SECOND = 1000000.0;
+
+void runOnMediaQueue(std::function<void()> work) {
+	static dispatch_queue_t queue = dispatch_queue_create("MacShell.MediaSources", DISPATCH_QUEUE_SERIAL);
+	auto sharedWork = std::make_shared<std::function<void()>>(std::move(work));
+	dispatch_async(queue, ^{ (*sharedWork)(); });
+}
 
 MprisPlaybackState::Enum playbackStateFor(macos::PlaybackStatus status) {
 	switch (status) {
@@ -219,7 +229,7 @@ void MprisPlayer::setPosition(qreal position) {
 		return;
 	}
 
-	macos::seekTo(this->mSourceIdentifier, position);
+	runOnMediaQueue([sourceIdentifier = this->mSourceIdentifier, position]() { macos::seekTo(sourceIdentifier, position); });
 	this->mPositionAtReference = position;
 	this->mPositionReferenceTime = QDateTime::currentDateTimeUtc();
 	emit this->positionChanged();
@@ -233,7 +243,7 @@ void MprisPlayer::setVolume(qreal volume) {
 		qCWarning(logMpris) << "Volume control is not supported by" << this->bIdentity.value();
 		return;
 	}
-	macos::setVolume(this->mSourceIdentifier, volume);
+	runOnMediaQueue([sourceIdentifier = this->mSourceIdentifier, volume]() { macos::setVolume(sourceIdentifier, volume); });
 	MprisPlayer::requestRefresh();
 }
 
@@ -255,7 +265,9 @@ void MprisPlayer::setLoopState(MprisLoopState::Enum loopState) {
 		qCWarning(logMpris) << "Looping is not supported by" << this->bIdentity.value();
 		return;
 	}
-	macos::setRepeat(this->mSourceIdentifier, repeatModeFor(loopState));
+	runOnMediaQueue([sourceIdentifier = this->mSourceIdentifier, repeat = repeatModeFor(loopState)]() {
+		macos::setRepeat(sourceIdentifier, repeat);
+	});
 	MprisPlayer::requestRefresh();
 }
 
@@ -270,7 +282,7 @@ void MprisPlayer::setShuffle(bool shuffle) {
 		qCWarning(logMpris) << "Shuffle is not supported by" << this->bIdentity.value();
 		return;
 	}
-	macos::setShuffle(this->mSourceIdentifier, shuffle);
+	runOnMediaQueue([sourceIdentifier = this->mSourceIdentifier, shuffle]() { macos::setShuffle(sourceIdentifier, shuffle); });
 	MprisPlayer::requestRefresh();
 }
 
@@ -286,7 +298,7 @@ void MprisPlayer::openUri([[maybe_unused]] const QString& uri) {
 }
 
 void MprisPlayer::sendCommand(macos::MediaCommand command) {
-	macos::sendCommand(this->mSourceIdentifier, command);
+	runOnMediaQueue([sourceIdentifier = this->mSourceIdentifier, command]() { macos::sendCommand(sourceIdentifier, command); });
 	MprisPlayer::requestRefresh();
 }
 
@@ -322,10 +334,36 @@ MprisWatcher::MprisWatcher() {
 void MprisWatcher::scheduleRefresh() { this->mRefreshDebounce.start(); }
 
 void MprisWatcher::refresh() {
-	this->applySnapshots(macos::readMediaSnapshots());
+	this->readAndApplySnapshots();
 
 	macos::requestMediaRemoteRefresh([watcher = QPointer<MprisWatcher>(this)]() {
-		if (watcher) watcher->applySnapshots(macos::readMediaSnapshots());
+		if (watcher) watcher->readAndApplySnapshots();
+	});
+}
+
+void MprisWatcher::readAndApplySnapshots() {
+	if (this->mReadInFlight) {
+		this->mReadPending = true;
+		return;
+	}
+	this->mReadInFlight = true;
+
+	QPointer<MprisWatcher> watcher = this;
+	runOnMediaQueue([watcher]() {
+		auto snapshots = macos::readMediaSnapshots();
+		QMetaObject::invokeMethod(
+		    QCoreApplication::instance(),
+		    [watcher, snapshots]() {
+			    if (!watcher) return;
+			    watcher->mReadInFlight = false;
+			    watcher->applySnapshots(snapshots);
+			    if (watcher->mReadPending) {
+				    watcher->mReadPending = false;
+				    watcher->readAndApplySnapshots();
+			    }
+		    },
+		    Qt::QueuedConnection
+		);
 	});
 }
 

@@ -3,10 +3,13 @@
 #include <initializer_list>
 #include <utility>
 
+#include <qcoreapplication.h>
 #include <qhash.h>
+#include <qmetaobject.h>
 #include <qstring.h>
 
 #import <Foundation/Foundation.h>
+#import <CoreBluetooth/CoreBluetooth.h>
 #import <IOBluetooth/IOBluetooth.h>
 #import <IOKit/IOKitLib.h>
 
@@ -167,12 +170,64 @@ IOBluetoothDevice* deviceForAddress(const QString& address) {
 }
 
 void runOnMainQueue(std::function<void(bool)> callback, bool succeeded) {
-	dispatch_async(dispatch_get_main_queue(), ^{
-		if (callback) callback(succeeded);
-	});
+	QMetaObject::invokeMethod(
+	    QCoreApplication::instance(),
+	    [callback, succeeded]() {
+		    if (callback) callback(succeeded);
+	    },
+	    Qt::QueuedConnection
+	);
 }
 
 }
+
+@class MacShellBluetoothAccessRequest;
+
+static NSMutableArray<MacShellBluetoothAccessRequest*>* pendingAccessRequests() {
+	static NSMutableArray<MacShellBluetoothAccessRequest*>* requests = [NSMutableArray array];
+	return requests;
+}
+
+@interface MacShellBluetoothAccessRequest: NSObject <CBCentralManagerDelegate>
+@property(nonatomic, strong) CBCentralManager* centralManager;
+@end
+
+@implementation MacShellBluetoothAccessRequest {
+	std::function<void(bool)> decisionHandler;
+}
+
+- (instancetype)initWithHandler:(std::function<void(bool)>)handler {
+	self = [super init];
+	if (self) {
+		self->decisionHandler = std::move(handler);
+		dispatch_queue_t delegateQueue = dispatch_queue_create("MacShell.BluetoothAccess", DISPATCH_QUEUE_SERIAL);
+		self.centralManager = [[CBCentralManager alloc] initWithDelegate:self
+		                                                          queue:delegateQueue
+		                                                        options:@{CBCentralManagerOptionShowPowerAlertKey: @NO}];
+	}
+	return self;
+}
+
+- (void)centralManagerDidUpdateState:(CBCentralManager*)central {
+	auto authorization = CBManager.authorization;
+	if (authorization == CBManagerAuthorizationNotDetermined) return;
+
+	auto handler = std::exchange(self->decisionHandler, nullptr);
+	auto granted = authorization == CBManagerAuthorizationAllowedAlways;
+	MacShellBluetoothAccessRequest* finishedRequest = self;
+
+	QMetaObject::invokeMethod(
+	    QCoreApplication::instance(),
+	    [handler, granted, finishedRequest]() {
+		    if (handler) handler(granted);
+		    finishedRequest.centralManager.delegate = nil;
+		    [pendingAccessRequests() removeObject:finishedRequest];
+	    },
+	    Qt::QueuedConnection
+	);
+}
+
+@end
 
 @interface MacShellBluetoothInquiryDelegate: NSObject <IOBluetoothDeviceInquiryDelegate>
 @property(nonatomic, strong) IOBluetoothDeviceInquiry* inquiry;
@@ -283,6 +338,16 @@ void runOnMainQueue(std::function<void(bool)> callback, bool succeeded) {
 @end
 
 namespace qs::bluetooth::macos {
+
+void requestBluetoothAccess(std::function<void(bool granted)> onDecided) {
+	auto authorization = CBManager.authorization;
+	if (authorization != CBManagerAuthorizationNotDetermined) {
+		onDecided(authorization == CBManagerAuthorizationAllowedAlways);
+		return;
+	}
+
+	[pendingAccessRequests() addObject:[[MacShellBluetoothAccessRequest alloc] initWithHandler:std::move(onDecided)]];
+}
 
 ControllerInfo readController() {
 	ControllerInfo info;

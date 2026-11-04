@@ -1,7 +1,9 @@
 #include "pipewire.hpp"
 #include <algorithm>
+#include <dispatch/dispatch.h>
 #include <memory>
 
+#include <qcoreapplication.h>
 #include <qhash.h>
 #include <qlist.h>
 #include <qmetaobject.h>
@@ -45,6 +47,11 @@ QString deviceIconName(AudioTransport transport, AudioDirection direction) {
 }
 
 constexpr int PEAK_SAMPLE_INTERVAL_MILLISECONDS = 33;
+
+dispatch_queue_t meterControlQueue() {
+	static dispatch_queue_t queue = dispatch_queue_create("MacShell.LevelMeterControl", DISPATCH_QUEUE_SERIAL);
+	return queue;
+}
 
 template <typename Callback>
 void runOnObjectThread(QObject* receiver, Callback callback) {
@@ -419,12 +426,15 @@ void PwObjectTracker::setObjects(const QList<QObject*>& objects) {
 
 PwNodePeakMonitor::PwNodePeakMonitor(QObject* parent)
     : QObject(parent)
-    , mMeter(std::make_unique<coreaudio::LevelMeter>()) {
+    , mMeter(std::make_shared<coreaudio::LevelMeter>()) {
 	this->mSampleTimer.setInterval(PEAK_SAMPLE_INTERVAL_MILLISECONDS);
 	QObject::connect(&this->mSampleTimer, &QTimer::timeout, this, &PwNodePeakMonitor::samplePeaks);
 }
 
-PwNodePeakMonitor::~PwNodePeakMonitor() { this->mMeter->stop(); }
+PwNodePeakMonitor::~PwNodePeakMonitor() {
+	auto meter = this->mMeter;
+	dispatch_async(meterControlQueue(), ^{ meter->stop(); });
+}
 
 void PwNodePeakMonitor::setNode(PwNodeIface* node) {
 	if (node == this->mNode) return;
@@ -443,18 +453,35 @@ void PwNodePeakMonitor::setEnabled(bool enabled) {
 
 void PwNodePeakMonitor::restartMeter() {
 	this->mSampleTimer.stop();
-	this->mMeter->stop();
 	this->resetPeaks();
 
-	if (!this->mEnabled || !this->mNode) return;
-
+	auto generation = ++this->mMeterGeneration;
+	auto meter = this->mMeter;
+	auto shouldStart = this->mEnabled && this->mNode;
+	auto deviceId = shouldStart ? this->mNode->deviceId() : kAudioObjectUnknown;
+	auto direction = shouldStart ? this->mNode->direction() : coreaudio::AudioDirection::Output;
 	auto channelCount = this->channels().size();
-	if (!this->mMeter->start(this->mNode->deviceId(), this->mNode->direction(), channelCount)) {
-		qWarning() << "Could not start audio level metering for" << this->mNode->description();
-		return;
-	}
+	auto description = shouldStart ? this->mNode->description() : QString();
+	QPointer<PwNodePeakMonitor> monitor = this;
 
-	this->mSampleTimer.start();
+	dispatch_async(meterControlQueue(), ^{
+		meter->stop();
+		if (!shouldStart) return;
+
+		auto started = meter->start(deviceId, direction, channelCount);
+		QMetaObject::invokeMethod(
+		    QCoreApplication::instance(),
+		    [monitor, generation, started, description]() {
+			    if (!monitor || monitor->mMeterGeneration != generation) return;
+			    if (!started) {
+				    qWarning() << "Could not start audio level metering for" << description;
+				    return;
+			    }
+			    monitor->mSampleTimer.start();
+		    },
+		    Qt::QueuedConnection
+		);
+	});
 }
 
 void PwNodePeakMonitor::resetPeaks() {

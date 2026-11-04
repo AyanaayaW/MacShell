@@ -56,7 +56,7 @@ PowerProfiles::PowerProfiles() {
 	[[NSNotificationCenter defaultCenter]
 	    addObserverForName:NSProcessInfoPowerStateDidChangeNotification
 	                object:nil
-	                 queue:[NSOperationQueue mainQueue]
+	                 queue:nil
 	            usingBlock:^(NSNotification*) {
 		              QMetaObject::invokeMethod(this, [this]() { this->refreshFromSystem(); });
 	            }];

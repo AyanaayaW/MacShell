@@ -262,11 +262,14 @@ private:
 	MprisWatcher();
 
 	void applySnapshots(const QList<macos::MediaSnapshot>& snapshots);
+	void readAndApplySnapshots();
 
 	ObjectModel<MprisPlayer> mPlayers {this};
 	QHash<QString, MprisPlayer*> mPlayersBySource;
 	QTimer mPollTimer;
 	QTimer mRefreshDebounce;
+	bool mReadInFlight = false;
+	bool mReadPending = false;
 };
 
 class MprisQml: public QObject {

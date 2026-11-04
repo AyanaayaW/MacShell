@@ -163,7 +163,7 @@ SystemTrayHost::SystemTrayHost() {
 	for (NSNotificationName name in @[NSWorkspaceDidLaunchApplicationNotification, NSWorkspaceDidTerminateApplicationNotification]) {
 		[workspaceCenter addObserverForName:name
 		                             object:nil
-		                              queue:NSOperationQueue.mainQueue
+		                              queue:nil
 		                         usingBlock:^(NSNotification*) { SystemTrayHost::instance()->scheduleRefresh(); }];
 	}
 

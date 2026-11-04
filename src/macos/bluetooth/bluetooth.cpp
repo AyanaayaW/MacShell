@@ -311,6 +311,18 @@ BluetoothManager* BluetoothManager::instance() {
 }
 
 BluetoothManager::BluetoothManager() {
+	macos::requestBluetoothAccess([manager = QPointer<BluetoothManager>(this)](bool granted) {
+		if (!manager) return;
+		if (!granted) {
+			qCWarning(logBluetooth) << "Bluetooth access was not granted to MacShell.";
+			return;
+		}
+		manager->initialize();
+	});
+}
+
+void BluetoothManager::initialize() {
+	if (this->mAdapter) return;
 	this->mAdapter = new BluetoothAdapter(this);
 
 	for (auto* device: this->mAdapter->devices()->valueList()) this->mDevices.insertObject(device);
@@ -332,7 +344,9 @@ BluetoothManager::BluetoothManager() {
 	this->mRefreshTimer.start(REFRESH_INTERVAL_MILLISECONDS);
 }
 
-void BluetoothManager::refresh() { this->mAdapter->refresh(); }
+void BluetoothManager::refresh() {
+	if (this->mAdapter) this->mAdapter->refresh();
+}
 
 BluezQml::BluezQml(QObject* parent): QObject(parent) {
 	QObject::connect(

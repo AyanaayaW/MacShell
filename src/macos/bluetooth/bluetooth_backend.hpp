@@ -27,6 +27,8 @@ struct DeviceInfo {
 	std::optional<qreal> batteryFraction;
 };
 
+void requestBluetoothAccess(std::function<void(bool granted)> onDecided);
+
 ControllerInfo readController();
 void setPoweredOn(bool poweredOn);
 void setDiscoverable(bool discoverable);

@@ -5,7 +5,9 @@
 #include <mutex>
 #include <utility>
 
+#include <qcoreapplication.h>
 #include <qcryptographichash.h>
+#include <qmetaobject.h>
 #include <qdir.h>
 #include <qfileinfo.h>
 #include <qhash.h>
@@ -76,6 +78,21 @@ const MediaRemote& mediaRemote() {
 		return loaded;
 	}();
 	return library;
+}
+
+dispatch_queue_t mediaRemoteQueue() {
+	static dispatch_queue_t queue = dispatch_queue_create("MacShell.MediaRemote", DISPATCH_QUEUE_SERIAL);
+	return queue;
+}
+
+void deliverToQt(const std::shared_ptr<std::function<void()>>& handler) {
+	QMetaObject::invokeMethod(
+	    QCoreApplication::instance(),
+	    [handler]() {
+		    if (*handler) (*handler)();
+	    },
+	    Qt::QueuedConnection
+	);
 }
 
 std::mutex& mediaRemoteMutex() {
@@ -323,12 +340,12 @@ void requestMediaRemoteRefresh(std::function<void()> onUpdated) {
 
 	static std::once_flag notificationsRegistered;
 	std::call_once(notificationsRegistered, [&library]() {
-		if (library.registerForNotifications) library.registerForNotifications(dispatch_get_main_queue());
+		if (library.registerForNotifications) library.registerForNotifications(mediaRemoteQueue());
 	});
 
 	auto handler = std::make_shared<std::function<void()>>(std::move(onUpdated));
-	library.getNowPlayingProcess(dispatch_get_main_queue(), ^(int processIdentifier) {
-		library.getNowPlayingInfo(dispatch_get_main_queue(), ^(NSDictionary* information) {
+	library.getNowPlayingProcess(mediaRemoteQueue(), ^(int processIdentifier) {
+		library.getNowPlayingInfo(mediaRemoteQueue(), ^(NSDictionary* information) {
 			{
 				std::lock_guard lock(mediaRemoteMutex());
 				if (information.count > 0 && processIdentifier > 0) {
@@ -337,7 +354,7 @@ void requestMediaRemoteRefresh(std::function<void()> onUpdated) {
 					cachedMediaRemoteSnapshot().reset();
 				}
 			}
-			if (*handler) (*handler)();
+			deliverToQt(handler);
 		});
 	});
 }
@@ -345,7 +362,7 @@ void requestMediaRemoteRefresh(std::function<void()> onUpdated) {
 void observeMediaChanges(std::function<void()> onChange) {
 	auto handler = std::make_shared<std::function<void()>>(std::move(onChange));
 	auto notify = ^(NSNotification*) {
-		if (*handler) (*handler)();
+		deliverToQt(handler);
 	};
 
 	for (NSString* name in @[
@@ -356,14 +373,14 @@ void observeMediaChanges(std::function<void()> onChange) {
 	{
 		[NSNotificationCenter.defaultCenter addObserverForName:name
 		                                                object:nil
-		                                                 queue:NSOperationQueue.mainQueue
+		                                                 queue:nil
 		                                            usingBlock:notify];
 	}
 
 	for (NSString* name in @[@"com.spotify.client.PlaybackStateChanged", @"com.apple.Music.playerInfo"]) {
 		[NSDistributedNotificationCenter.defaultCenter addObserverForName:name
 		                                                           object:nil
-		                                                            queue:NSOperationQueue.mainQueue
+		                                                            queue:nil
 		                                                       usingBlock:notify];
 	}
 }

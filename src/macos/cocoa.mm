@@ -103,7 +103,7 @@ void beginLockdown() {
 	state.resignObserver = [NSNotificationCenter.defaultCenter
 	    addObserverForName:NSApplicationDidResignActiveNotification
 	                object:nil
-	                 queue:NSOperationQueue.mainQueue
+	                 queue:nil
 	            usingBlock:^(NSNotification*) { [NSApp activateIgnoringOtherApps:YES]; }];
 	state.active = true;
 }
@@ -158,7 +158,7 @@ void showFallbackLockShield() {
 	unlockObserver = [NSDistributedNotificationCenter.defaultCenter
 	    addObserverForName:@"com.apple.screenIsUnlocked"
 	                object:nil
-	                 queue:NSOperationQueue.mainQueue
+	                 queue:nil
 	            usingBlock:^(NSNotification*) {
 		            for (NSWindow* shield in shieldWindows) [shield orderOut:nil];
 		            [shieldWindows removeAllObjects];
@@ -249,7 +249,7 @@ void setAccessoryApp() {
 	startupActivationObserver = [NSNotificationCenter.defaultCenter
 	    addObserverForName:NSApplicationDidBecomeActiveNotification
 	                object:nil
-	                 queue:NSOperationQueue.mainQueue
+	                 queue:nil
 	            usingBlock:^(NSNotification*) {
 		            [previouslyFrontmost activateWithOptions:0];
 		            [NSNotificationCenter.defaultCenter removeObserver:startupActivationObserver];
