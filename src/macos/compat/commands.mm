@@ -31,6 +31,8 @@ constexpr std::array COMPAT_COMMANDS {
 	NamedCommand {"systemctl", runSystemctl},
 	NamedCommand {"brightnessctl", runBrightnessctl},
 	NamedCommand {"wpctl", runWpctl},
+	NamedCommand {"pactl", runPactl},
+	NamedCommand {"nmcli", runNmcli},
 	NamedCommand {"wl-copy", runWlCopy},
 	NamedCommand {"wl-paste", runWlPaste},
 	NamedCommand {"xdg-open", runXdgOpen},
