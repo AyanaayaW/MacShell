@@ -341,6 +341,16 @@ int selectInstance(
 			*instance = instances.value(0);
 		}
 	} else {
+#ifdef __APPLE__
+		if (cmd.config.path->isEmpty() && cmd.config.name->isEmpty()) {
+			auto [liveInstances, mismatchedInstances, deadInstances] =
+			    QsPaths::collectInstances(basePath->filePath("by-pid"), "");
+			if (liveInstances.length() == 1) {
+				*instance = liveInstances.value(0);
+				return 0;
+			}
+		}
+#endif
 		QString configFilePath;
 		auto r = locateConfigFile(cmd, configFilePath);
 		if (r != 0) return r;
@@ -431,7 +441,11 @@ int listInstances(CommandState& cmd) {
 
 	QString path;
 	QString configFilePath;
-	if (cmd.instance.all) {
+	auto listsEverything = cmd.instance.all;
+#ifdef __APPLE__
+	listsEverything = listsEverything || (cmd.config.path->isEmpty() && cmd.config.name->isEmpty());
+#endif
+	if (listsEverything) {
 		path = basePath->filePath("by-pid");
 	} else {
 		auto r = locateConfigFile(cmd, configFilePath);
