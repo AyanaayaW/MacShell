@@ -4,6 +4,7 @@ qt_add_library(quickshell-hyprland STATIC
 	focus_grab.mm
 	global_shortcuts.mm
 	hyprland_window.cpp
+	hyprctl.mm
 )
 
 qt_add_qml_module(quickshell-hyprland
@@ -18,6 +19,7 @@ install_qml_module(quickshell-hyprland)
 
 target_link_libraries(quickshell-hyprland PRIVATE
 	Qt::Quick
+	Qt::Network
 	"-framework AppKit"
 	"-framework ApplicationServices"
 	"-framework CoreGraphics"

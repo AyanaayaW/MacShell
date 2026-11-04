@@ -13,6 +13,7 @@
 #include "../core/plugin.hpp"
 #include "applications.hpp"
 #include "cocoa.hpp"
+#include "hyprland/hyprctl.hpp"
 #include "icons.hpp"
 #include "panel_window.hpp"
 #include "settings.hpp"
@@ -38,6 +39,10 @@ class MacPlugin: public QsEnginePlugin {
 			});
 			return qs::macos::scanInstalledApplications();
 		});
+
+		qs::hyprland::ipc::startHyprctlServer();
+
+		qs::hyprland::ipc::startHyprctlServer();
 
 		auto settings = qs::macos::readSettings();
 		qs::macos::applyLaunchAtLogin(settings.launchAtLogin);
