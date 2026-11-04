@@ -1,5 +1,7 @@
 #pragma once
 
+#include <qrect.h>
+
 #include <qnamespace.h>
 #include <qobject.h>
 #include <qproperty.h>
@@ -58,6 +60,7 @@ public:
 
 signals:
 	void surfaceCreated();
+	void geometryMoved();
 
 protected:
 	bool eventFilter(QObject* watched, QEvent* event) override;
@@ -153,6 +156,7 @@ private slots:
 	void macInit();
 	void updatePanelStack();
 	void updateDimensionsSlot();
+	void restoreAnchoredGeometry();
 
 private:
 	void updateScreen();
@@ -169,6 +173,7 @@ private:
 
 	MacPanelEventFilter eventFilter;
 	QString mLayerNamespace;
+	QRect mAnchoredGeometry;
 
 	Q_OBJECT_BINDABLE_PROPERTY_WITH_ARGS(MacPanelWindow, qs::wayland::layershell::WlrLayer::Enum, bLayer, qs::wayland::layershell::WlrLayer::Top, &MacPanelWindow::layerChanged);
 	Q_OBJECT_BINDABLE_PROPERTY_WITH_ARGS(MacPanelWindow, qs::wayland::layershell::WlrKeyboardFocus::Enum, bKeyboardFocus, qs::wayland::layershell::WlrKeyboardFocus::None, &MacPanelWindow::keyboardFocusChanged);

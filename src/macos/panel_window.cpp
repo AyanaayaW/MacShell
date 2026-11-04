@@ -1,4 +1,6 @@
 #include "panel_window.hpp"
+
+#include <qloggingcategory.h>
 #include <map>
 
 #include <qhash.h>
@@ -98,7 +100,18 @@ private:
 	std::map<EngineGeneration*, QList<MacPanelWindow*>> mPanels;
 };
 
+namespace {
+Q_LOGGING_CATEGORY(logPanelGeometry, "quickshell.macos.panel.geometry", QtWarningMsg);
+}
+
 bool MacPanelEventFilter::eventFilter(QObject* watched, QEvent* event) {
+	if (event->type() == QEvent::Move || event->type() == QEvent::Resize) {
+		if (auto* window = qobject_cast<QWindow*>(watched)) {
+			qCDebug(logPanelGeometry) << "window" << window << "now at" << window->geometry();
+		}
+		emit this->geometryMoved();
+	}
+
 	if (event->type() == QEvent::PlatformSurface) {
 		auto* surfaceEvent = static_cast<QPlatformSurfaceEvent*>(event);
 
@@ -118,6 +131,13 @@ MacPanelWindow::MacPanelWindow(QObject* parent): ProxyWindowBase(parent) {
 	    &MacPanelEventFilter::surfaceCreated,
 	    this,
 	    &MacPanelWindow::macInit
+	);
+	QObject::connect(
+	    &this->eventFilter,
+	    &MacPanelEventFilter::geometryMoved,
+	    this,
+	    &MacPanelWindow::restoreAnchoredGeometry,
+	    Qt::QueuedConnection
 	);
 
 	this->bcExclusiveZone.setBinding([this]() -> qint32 {
@@ -290,8 +310,19 @@ void MacPanelWindow::updateDimensions(bool propagate) {
 		geometry.setHeight(this->implicitHeight());
 	}
 
+	qCDebug(logPanelGeometry) << "panel" << this->window << "set to" << geometry << "anchors top" << anchors.mTop
+	                          << "bottom" << anchors.mBottom << "screen" << screenGeometry;
+	this->mAnchoredGeometry = geometry;
 	this->window->setGeometry(geometry);
 	this->updateStrut(propagate);
+}
+
+void MacPanelWindow::restoreAnchoredGeometry() {
+	if (this->window == nullptr || !this->mAnchoredGeometry.isValid()) return;
+	if (this->window->geometry() == this->mAnchoredGeometry) return;
+	qCDebug(logPanelGeometry) << "panel" << this->window << "moved by the system to" << this->window->geometry()
+	                          << "; restoring" << this->mAnchoredGeometry;
+	this->window->setGeometry(this->mAnchoredGeometry);
 }
 
 void MacPanelWindow::updatePanelStack() {
