@@ -27,7 +27,10 @@ struct ShortcutBinding {
 	KeyCombination keys;
 	QString dispatcher;
 	QString argument;
+	bool triggersOnRelease = false;
 };
+
+void setSuperModifier(quint32 carbonModifier);
 
 class HotKeyRegistry: public QObject {
 	Q_OBJECT;

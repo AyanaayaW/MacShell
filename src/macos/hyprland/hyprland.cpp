@@ -1,4 +1,8 @@
 #include "hyprland.hpp"
+#include "window_actions.hpp"
+#include <optional>
+#include <qcoreapplication.h>
+#include <qregularexpression.h>
 #include <algorithm>
 #include <memory>
 #include <utility>
@@ -510,7 +514,133 @@ void HyprlandState::dispatch(const QString& request) {
 		return;
 	}
 
+	if (this->dispatchWindowAction(command, argument)) return;
+
 	qCWarning(logHyprland) << "Unsupported Hyprland dispatcher on macOS:" << command;
+}
+
+namespace {
+
+std::optional<macos::Direction> directionFrom(const QString& argument) {
+	auto word = argument.trimmed().toLower();
+	if (word == QStringLiteral("l") || word == QStringLiteral("left")) return macos::Direction::Left;
+	if (word == QStringLiteral("r") || word == QStringLiteral("right")) return macos::Direction::Right;
+	if (word == QStringLiteral("u") || word == QStringLiteral("up") || word == QStringLiteral("t")) {
+		return macos::Direction::Up;
+	}
+	if (word == QStringLiteral("d") || word == QStringLiteral("down") || word == QStringLiteral("b")) {
+		return macos::Direction::Down;
+	}
+	return std::nullopt;
+}
+
+bool windowMatches(const macos::WindowDescription& window, const QString& selector) {
+	auto separator = selector.indexOf(u':');
+	auto kind = separator == -1 ? QStringLiteral("class") : selector.first(separator).toLower();
+	auto value = separator == -1 ? selector : selector.sliced(separator + 1);
+
+	if (kind == QStringLiteral("address")) {
+		bool isNumber = false;
+		auto windowId = value.startsWith(QStringLiteral("0x")) ? value.sliced(2).toUInt(&isNumber, 16) : value.toUInt(&isNumber);
+		return isNumber && window.windowId == windowId;
+	}
+	if (kind == QStringLiteral("pid")) return QString::number(window.processId) == value;
+
+	QRegularExpression pattern(value, QRegularExpression::CaseInsensitiveOption);
+	if (kind == QStringLiteral("title") || kind == QStringLiteral("initialtitle")) {
+		return pattern.match(window.title).hasMatch();
+	}
+	return pattern.match(window.bundleIdentifier).hasMatch() || pattern.match(window.applicationName).hasMatch();
+}
+
+}
+
+QList<macos::WindowDescription> HyprlandState::windowsOnFocusedWorkspace() const {
+	auto* workspace = this->bFocusedWorkspace.value();
+	auto windows = macos::readWindows();
+	if (!workspace) return windows;
+
+	QList<macos::WindowDescription> visibleWindows;
+	for (const auto& window: windows) {
+		if (window.spaceIds.contains(workspace->spaceId())) visibleWindows.append(window);
+	}
+	return visibleWindows;
+}
+
+bool HyprlandState::dispatchWindowAction(const QString& command, const QString& argument) {
+	static const QStringList ignoredOnMacos {
+	    QStringLiteral("togglefloating"), QStringLiteral("setfloating"), QStringLiteral("settiled"),
+	    QStringLiteral("pseudo"), QStringLiteral("togglesplit"), QStringLiteral("swapsplit"),
+	    QStringLiteral("pin"), QStringLiteral("layoutmsg"), QStringLiteral("pass"),
+	    QStringLiteral("sendshortcut"), QStringLiteral("togglegroup"), QStringLiteral("changegroupactive"),
+	    QStringLiteral("lockgroups"), QStringLiteral("moveintogroup"), QStringLiteral("moveoutofgroup"),
+	    QStringLiteral("dpms"), QStringLiteral("forcerendererreload"), QStringLiteral("submap"),
+	    QStringLiteral("bringactivetotop"), QStringLiteral("alterzorder"), QStringLiteral("setprop"),
+	};
+	if (ignoredOnMacos.contains(command)) return true;
+
+	if (command == QStringLiteral("killactive") || command == QStringLiteral("forcekillactive")) {
+		macos::closeFocusedWindow();
+		return true;
+	}
+	if (command == QStringLiteral("closewindow")) {
+		for (const auto& window: macos::readWindows()) {
+			if (windowMatches(window, argument)) macos::closeWindow(window.processId, window.windowId);
+		}
+		return true;
+	}
+	if (command == QStringLiteral("fullscreen") || command == QStringLiteral("fullscreenstate")) {
+		if (argument.trimmed() == QStringLiteral("1")) macos::maximizeFocusedWindow();
+		else macos::toggleFocusedFullscreen();
+		return true;
+	}
+	if (command == QStringLiteral("centerwindow")) {
+		macos::centerFocusedWindow();
+		return true;
+	}
+	if (command == QStringLiteral("resizeactive")) {
+		auto values = argument.split(u' ', Qt::SkipEmptyParts);
+		if (values.size() >= 2 && values.first() != QStringLiteral("exact")) {
+			macos::resizeFocusedWindow(values.at(0).toInt(), values.at(1).toInt());
+		}
+		return true;
+	}
+	if (command == QStringLiteral("movewindow") || command == QStringLiteral("swapwindow")) {
+		if (auto direction = directionFrom(argument)) macos::snapFocusedWindow(*direction);
+		return true;
+	}
+	if (command == QStringLiteral("movefocus")) {
+		if (auto direction = directionFrom(argument)) {
+			macos::focusWindowInDirection(*direction, this->windowsOnFocusedWorkspace());
+		}
+		return true;
+	}
+	if (command == QStringLiteral("focuswindow")) {
+		for (const auto& window: macos::readWindows()) {
+			if (windowMatches(window, argument)) {
+				macos::focusWindow(window.processId, window.windowId);
+				break;
+			}
+		}
+		return true;
+	}
+	if (command == QStringLiteral("cyclenext")) {
+		auto windows = this->windowsOnFocusedWorkspace();
+		if (windows.size() < 2) return true;
+		auto backwards = argument.contains(QStringLiteral("prev"));
+		const auto& target = backwards ? windows.at(1) : windows.last();
+		macos::focusWindow(target.processId, target.windowId);
+		return true;
+	}
+	if (command == QStringLiteral("exit")) {
+		QCoreApplication::quit();
+		return true;
+	}
+	if (command == QStringLiteral("movetoworkspace") || command == QStringLiteral("movetoworkspacesilent")) {
+		qCWarning(logHyprland) << "macOS does not let other apps move windows between Spaces; ignoring" << command;
+		return true;
+	}
+	return false;
 }
 
 HyprlandMonitor* HyprlandState::monitorForName(const QString& name) const {

@@ -9,6 +9,7 @@
 #include <qloggingcategory.h>
 #include <qobject.h>
 #include <qregularexpression.h>
+#include <qset.h>
 #include <qstring.h>
 #include <qstringlist.h>
 #include <qtextstream.h>
@@ -67,18 +68,26 @@ const QHash<QString, quint32>& keyCodesByName() {
 	return keyCodes;
 }
 
+quint32& superModifier() {
+	static quint32 modifier = optionKey;
+	return modifier;
+}
+
 std::optional<quint32> modifierFor(const QString& name) {
 	static const QHash<QString, quint32> modifiers {
-	    {QStringLiteral("SUPER"), cmdKey},     {QStringLiteral("WIN"), cmdKey},
-	    {QStringLiteral("LOGO"), cmdKey},      {QStringLiteral("MOD4"), cmdKey},
-	    {QStringLiteral("META"), cmdKey},      {QStringLiteral("CMD"), cmdKey},
-	    {QStringLiteral("COMMAND"), cmdKey},   {QStringLiteral("ALT"), optionKey},
-	    {QStringLiteral("MOD1"), optionKey},   {QStringLiteral("OPTION"), optionKey},
-	    {QStringLiteral("CTRL"), controlKey},  {QStringLiteral("CONTROL"), controlKey},
-	    {QStringLiteral("SHIFT"), shiftKey},
+	    {QStringLiteral("CMD"), cmdKey},       {QStringLiteral("COMMAND"), cmdKey},
+	    {QStringLiteral("ALT"), optionKey},    {QStringLiteral("MOD1"), optionKey},
+	    {QStringLiteral("OPTION"), optionKey}, {QStringLiteral("CTRL"), controlKey},
+	    {QStringLiteral("CONTROL"), controlKey}, {QStringLiteral("SHIFT"), shiftKey},
+	};
+	static const QStringList superNames {
+	    QStringLiteral("SUPER"), QStringLiteral("WIN"), QStringLiteral("LOGO"),
+	    QStringLiteral("MOD4"), QStringLiteral("META"),
 	};
 
-	auto iterator = modifiers.find(name.toUpper());
+	auto upperName = name.toUpper();
+	if (superNames.contains(upperName)) return superModifier();
+	auto iterator = modifiers.find(upperName);
 	if (iterator == modifiers.end()) return std::nullopt;
 	return iterator.value();
 }
@@ -90,63 +99,114 @@ QString substituteVariables(QString text, const QHash<QString, QString>& variabl
 	return text;
 }
 
-QStringList bindingFiles() {
+QString configHomeDirectory() {
 	auto configHome = qEnvironmentVariable("XDG_CONFIG_HOME");
-	if (configHome.isEmpty()) configHome = QDir::home().filePath(QStringLiteral(".config"));
+	return configHome.isEmpty() ? QDir::home().filePath(QStringLiteral(".config")) : configHome;
+}
 
+QStringList bindingFiles() {
 	return {
-	    QDir(configHome).filePath(QStringLiteral("hypr/hyprland.conf")),
-	    QDir(configHome).filePath(QStringLiteral("macshell/shortcuts.conf")),
+	    QDir(configHomeDirectory()).filePath(QStringLiteral("hypr/hyprland.conf")),
+	    QDir(configHomeDirectory()).filePath(QStringLiteral("macshell/shortcuts.conf")),
 	};
 }
 
-bool allowsEveryDispatcher(const QString& path) {
-	return path.endsWith(QStringLiteral("macshell/shortcuts.conf"));
+QString expandPath(QString path, const QString& relativeTo) {
+	if (path.startsWith(u'~')) path = QDir::homePath() + path.sliced(1);
+	if (QDir::isRelativePath(path)) path = QDir(relativeTo).filePath(path);
+	return QDir::cleanPath(path);
 }
 
-QList<ShortcutBinding> parseBindingFile(const QString& path) {
-	QList<ShortcutBinding> bindings;
+QStringList matchingFiles(const QString& pattern) {
+	QFileInfo patternInfo(pattern);
+	if (!pattern.contains(u'*') && !pattern.contains(u'?')) return {pattern};
+	QDir directory(patternInfo.absolutePath());
+	QStringList files;
+	for (const auto& entry: directory.entryInfoList({patternInfo.fileName()}, QDir::Files, QDir::Name)) {
+		files.append(entry.filePath());
+	}
+	return files;
+}
 
-	QFile file(path);
-	if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return bindings;
+constexpr int MAXIMUM_SOURCE_DEPTH = 16;
+
+void collectBindings(
+    const QString& path,
+    QHash<QString, QString>& variables,
+    QSet<QString>& visitedFiles,
+    QList<ShortcutBinding>& bindings,
+    int depth
+) {
+	auto canonicalPath = QFileInfo(path).canonicalFilePath();
+	if (canonicalPath.isEmpty() || visitedFiles.contains(canonicalPath) || depth > MAXIMUM_SOURCE_DEPTH) return;
+	visitedFiles.insert(canonicalPath);
+
+	QFile file(canonicalPath);
+	if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return;
 
 	static const QRegularExpression variablePattern(QStringLiteral("^\\$([A-Za-z0-9_]+)\\s*=\\s*(.*)$"));
-	static const QRegularExpression bindPattern(QStringLiteral("^bind[a-z]*\\s*=\\s*(.*)$"));
+	static const QRegularExpression sourcePattern(QStringLiteral("^source\\s*=\\s*(.+)$"));
+	static const QRegularExpression bindPattern(QStringLiteral("^bind([a-z]*)\\s*=\\s*(.*)$"));
 
-	QHash<QString, QString> variables;
-	auto everyDispatcher = allowsEveryDispatcher(path);
 	QTextStream stream(&file);
-
 	while (!stream.atEnd()) {
 		auto line = stream.readLine().trimmed();
-		auto commentStart = line.indexOf(u'#');
+		auto commentStart = line.indexOf(QStringLiteral(" #"));
+		if (line.startsWith(u'#')) continue;
 		if (commentStart != -1) line = line.first(commentStart).trimmed();
 		if (line.isEmpty()) continue;
 
 		if (auto match = variablePattern.match(line); match.hasMatch()) {
-			variables.insert(match.captured(1), match.captured(2).trimmed());
+			variables.insert(match.captured(1), substituteVariables(match.captured(2).trimmed(), variables));
+			continue;
+		}
+
+		if (auto match = sourcePattern.match(line); match.hasMatch()) {
+			auto target = expandPath(substituteVariables(match.captured(1).trimmed(), variables), QFileInfo(canonicalPath).absolutePath());
+			for (const auto& sourcedFile: matchingFiles(target)) {
+				collectBindings(sourcedFile, variables, visitedFiles, bindings, depth + 1);
+			}
 			continue;
 		}
 
 		auto match = bindPattern.match(line);
 		if (!match.hasMatch()) continue;
 
-		auto fields = substituteVariables(match.captured(1), variables).split(u',');
-		if (fields.size() < 3) continue;
+		auto flags = match.captured(1);
+		if (flags.contains(u'm')) continue;
 
-		auto dispatcher = fields.at(2).trimmed();
-		if (!everyDispatcher && dispatcher != GLOBAL_DISPATCHER) continue;
+		auto fields = substituteVariables(match.captured(2), variables).split(u',');
+		auto dispatcherIndex = flags.contains(u'd') ? 3 : 2;
+		if (fields.size() <= dispatcherIndex) continue;
 
-		auto keys = parseKeyCombination(fields.at(0), fields.at(1));
-		if (!keys) {
-			qCWarning(logShortcuts) << "Unsupported key binding in" << path << ":" << line;
+		auto keyName = fields.at(1).trimmed();
+		if (keyName.isEmpty() || keyName.contains(QStringLiteral("mouse"), Qt::CaseInsensitive)
+		    || keyName.startsWith(QStringLiteral("Super_"), Qt::CaseInsensitive)
+		    || keyName.startsWith(QStringLiteral("XF86"), Qt::CaseInsensitive))
+		{
 			continue;
 		}
 
-		auto argument = fields.mid(3).join(u',').trimmed();
-		bindings.append({.keys = *keys, .dispatcher = dispatcher, .argument = argument});
-	}
+		auto keys = parseKeyCombination(fields.at(0), keyName);
+		if (!keys) {
+			qCInfo(logShortcuts) << "Skipping key binding macOS cannot register:" << line;
+			continue;
+		}
 
+		bindings.append({
+		    .keys = *keys,
+		    .dispatcher = fields.at(dispatcherIndex).trimmed(),
+		    .argument = fields.mid(dispatcherIndex + 1).join(u',').trimmed(),
+		    .triggersOnRelease = flags.contains(u'r'),
+		});
+	}
+}
+
+QList<ShortcutBinding> parseBindingFile(const QString& path) {
+	QList<ShortcutBinding> bindings;
+	QHash<QString, QString> variables;
+	QSet<QString> visitedFiles;
+	collectBindings(path, variables, visitedFiles, bindings, 0);
 	return bindings;
 }
 
@@ -173,6 +233,8 @@ OSStatus handleHotKeyEvent(
 
 }
 
+void setSuperModifier(quint32 carbonModifier) { superModifier() = carbonModifier; }
+
 std::optional<KeyCombination> parseKeyCombination(const QString& modifiers, const QString& key) {
 	static const QRegularExpression modifierSeparators(QStringLiteral("[\\s_+]+"));
 
@@ -183,7 +245,40 @@ std::optional<KeyCombination> parseKeyCombination(const QString& modifiers, cons
 		combination.modifiers |= *modifier;
 	}
 
-	auto keyCode = keyCodesByName().find(key.trimmed().toUpper());
+	static const QHash<int, QString> xkbKeyNames = [] {
+		QHash<int, QString> names {
+		    {9, QStringLiteral("ESCAPE")},  {20, QStringLiteral("MINUS")},  {21, QStringLiteral("EQUAL")},
+		    {22, QStringLiteral("BACKSPACE")}, {23, QStringLiteral("TAB")}, {34, QStringLiteral("BRACKETLEFT")},
+		    {35, QStringLiteral("BRACKETRIGHT")}, {36, QStringLiteral("RETURN")}, {47, QStringLiteral("SEMICOLON")},
+		    {48, QStringLiteral("APOSTROPHE")}, {49, QStringLiteral("GRAVE")}, {51, QStringLiteral("BACKSLASH")},
+		    {59, QStringLiteral("COMMA")},  {60, QStringLiteral("PERIOD")}, {61, QStringLiteral("SLASH")},
+		    {65, QStringLiteral("SPACE")},
+		};
+		const QString digitRow = QStringLiteral("1234567890");
+		for (int index = 0; index < digitRow.size(); ++index) names.insert(10 + index, digitRow.at(index));
+		const std::array<std::pair<int, QString>, 3> letterRows {{
+		    {24, QStringLiteral("QWERTYUIOP")},
+		    {38, QStringLiteral("ASDFGHJKL")},
+		    {52, QStringLiteral("ZXCVBNM")},
+		}};
+		for (const auto& [firstCode, letters]: letterRows) {
+			for (int index = 0; index < letters.size(); ++index) names.insert(firstCode + index, letters.at(index));
+		}
+		return names;
+	}();
+	static const QHash<QString, QString> keyAliases {
+	    {QStringLiteral("ESC"), QStringLiteral("ESCAPE")},
+	    {QStringLiteral("KP_ENTER"), QStringLiteral("RETURN")},
+	    {QStringLiteral("PLUS"), QStringLiteral("EQUAL")},
+	    {QStringLiteral("UNDERSCORE"), QStringLiteral("MINUS")},
+	    {QStringLiteral("QUESTION"), QStringLiteral("SLASH")},
+	};
+
+	auto keyName = key.trimmed().toUpper();
+	if (keyName.startsWith(QStringLiteral("CODE:"))) keyName = xkbKeyNames.value(keyName.sliced(5).toInt());
+	keyName = keyAliases.value(keyName, keyName);
+
+	auto keyCode = keyCodesByName().find(keyName);
 	if (keyCode == keyCodesByName().end()) return std::nullopt;
 
 	combination.keyCode = keyCode.value();
@@ -242,8 +337,10 @@ void HotKeyRegistry::reloadBindings() {
 		for (const auto& binding: parseBindingFile(path)) {
 			auto hotKeyId = this->registerCombination(binding.keys);
 			if (hotKeyId != 0) this->mFileBindings.insert(hotKeyId, binding);
+			qCDebug(logShortcuts) << "Bound" << binding.dispatcher << binding.argument << "from" << path;
 		}
 	}
+	qCInfo(logShortcuts) << "Registered" << this->mFileBindings.size() << "key bindings";
 
 	this->watchBindingFiles();
 }
@@ -291,7 +388,7 @@ void HotKeyRegistry::handleHotKey(quint32 hotKeyId, bool pressed) {
 
 	if (binding->dispatcher == GLOBAL_DISPATCHER) {
 		emit this->globalShortcutTriggered(binding->argument, pressed);
-	} else if (pressed) {
+	} else if (pressed != binding->triggersOnRelease) {
 		ipc::HyprlandState::instance()->dispatch(binding->dispatcher + u' ' + binding->argument);
 	}
 }

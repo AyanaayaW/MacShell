@@ -6,6 +6,7 @@ qt_add_library(quickshell-hyprland STATIC
 	hyprland_window.cpp
 	hyprctl.mm
 	keyboard_layouts.mm
+	window_actions.mm
 )
 
 qt_add_qml_module(quickshell-hyprland

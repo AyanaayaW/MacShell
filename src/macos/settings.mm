@@ -7,6 +7,7 @@
 #include <qtenvironmentvariables.h>
 #include <qtextstream.h>
 
+#import <Carbon/Carbon.h>
 #import <Foundation/Foundation.h>
 #import <ServiceManagement/ServiceManagement.h>
 
@@ -47,11 +48,18 @@ MacShellSettings readSettings() {
 
 			if (key == QStringLiteral("hide_system_ui")) settings.hideSystemUi = parseBoolean(value);
 			else if (key == QStringLiteral("launch_at_login")) settings.launchAtLogin = parseBoolean(value);
+			else if (key == QStringLiteral("super_key")) settings.superKey = value.trimmed().toLower();
 		}
 	}
 
 	if (qEnvironmentVariable("MACSHELL_HIDE_SYSTEM_UI") == QStringLiteral("1")) settings.hideSystemUi = true;
 	return settings;
+}
+
+quint32 carbonModifierNamed(const QString& name) {
+	if (name == QStringLiteral("command") || name == QStringLiteral("cmd")) return cmdKey;
+	if (name == QStringLiteral("control") || name == QStringLiteral("ctrl")) return controlKey;
+	return optionKey;
 }
 
 void applyLaunchAtLogin(bool enabled) {

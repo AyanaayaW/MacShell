@@ -270,6 +270,8 @@ private:
 	HyprlandState();
 
 	void refreshEverything();
+	bool dispatchWindowAction(const QString& command, const QString& argument);
+	[[nodiscard]] QList<macos::WindowDescription> windowsOnFocusedWorkspace() const;
 	void switchWorkspaceRelative(int offset);
 	[[nodiscard]] HyprlandWorkspace* workspaceForSpace(quint64 spaceId) const;
 

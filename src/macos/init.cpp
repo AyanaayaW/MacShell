@@ -18,6 +18,7 @@
 #include "../window/proxywindow.hpp"
 #include "applications.hpp"
 #include "cocoa.hpp"
+#include "hyprland/global_shortcuts.hpp"
 #include "hyprland/hyprctl.hpp"
 #include "hyprland/keyboard_layouts.hpp"
 #include "icons.hpp"
@@ -60,6 +61,8 @@ class MacPlugin: public QsEnginePlugin {
 		qs::hyprland::ipc::startHyprctlServer();
 
 		auto settings = qs::macos::readSettings();
+		qs::hyprland::global_shortcuts::setSuperModifier(qs::macos::carbonModifierNamed(settings.superKey));
+		qs::hyprland::global_shortcuts::HotKeyRegistry::instance();
 		qs::macos::applyLaunchAtLogin(settings.launchAtLogin);
 
 		if (settings.hideSystemUi) {
