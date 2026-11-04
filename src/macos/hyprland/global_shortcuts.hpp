@@ -31,6 +31,7 @@ struct ShortcutBinding {
 };
 
 void setSuperModifier(quint32 carbonModifier);
+void runHyprlandAutostart();
 
 class HotKeyRegistry: public QObject {
 	Q_OBJECT;

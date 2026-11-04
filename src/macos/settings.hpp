@@ -9,6 +9,7 @@ struct MacShellSettings {
 	QString superKey = QStringLiteral("option");
 	bool hideSystemUi = false;
 	bool launchAtLogin = false;
+	bool hyprlandAutostart = true;
 };
 
 QString settingsFilePath();

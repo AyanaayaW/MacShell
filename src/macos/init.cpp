@@ -63,6 +63,7 @@ class MacPlugin: public QsEnginePlugin {
 		auto settings = qs::macos::readSettings();
 		qs::hyprland::global_shortcuts::setSuperModifier(qs::macos::carbonModifierNamed(settings.superKey));
 		qs::hyprland::global_shortcuts::HotKeyRegistry::instance();
+		if (settings.hyprlandAutostart) qs::hyprland::global_shortcuts::runHyprlandAutostart();
 		qs::macos::applyLaunchAtLogin(settings.launchAtLogin);
 
 		if (settings.hideSystemUi) {

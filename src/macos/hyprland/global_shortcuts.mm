@@ -1,5 +1,6 @@
 #include "global_shortcuts.hpp"
 #include <array>
+#include <utility>
 
 #include <qdir.h>
 #include <qfile.h>
@@ -12,6 +13,7 @@
 #include <qset.h>
 #include <qstring.h>
 #include <qstringlist.h>
+#include <qtenvironmentvariables.h>
 #include <qtextstream.h>
 
 #include "hyprland.hpp"
@@ -130,11 +132,17 @@ QStringList matchingFiles(const QString& pattern) {
 
 constexpr int MAXIMUM_SOURCE_DEPTH = 16;
 
+struct HyprlandConfigContents {
+	QList<ShortcutBinding> bindings;
+	QStringList autostartCommands;
+	QList<std::pair<QString, QString>> environment;
+};
+
 void collectBindings(
     const QString& path,
     QHash<QString, QString>& variables,
     QSet<QString>& visitedFiles,
-    QList<ShortcutBinding>& bindings,
+    HyprlandConfigContents& contents,
     int depth
 ) {
 	auto canonicalPath = QFileInfo(path).canonicalFilePath();
@@ -147,6 +155,8 @@ void collectBindings(
 	static const QRegularExpression variablePattern(QStringLiteral("^\\$([A-Za-z0-9_]+)\\s*=\\s*(.*)$"));
 	static const QRegularExpression sourcePattern(QStringLiteral("^source\\s*=\\s*(.+)$"));
 	static const QRegularExpression bindPattern(QStringLiteral("^bind([a-z]*)\\s*=\\s*(.*)$"));
+	static const QRegularExpression autostartPattern(QStringLiteral("^exec-once\\s*=\\s*(.+)$"));
+	static const QRegularExpression environmentPattern(QStringLiteral("^env\\s*=\\s*(.+)$"));
 
 	QTextStream stream(&file);
 	while (!stream.atEnd()) {
@@ -164,7 +174,21 @@ void collectBindings(
 		if (auto match = sourcePattern.match(line); match.hasMatch()) {
 			auto target = expandPath(substituteVariables(match.captured(1).trimmed(), variables), QFileInfo(canonicalPath).absolutePath());
 			for (const auto& sourcedFile: matchingFiles(target)) {
-				collectBindings(sourcedFile, variables, visitedFiles, bindings, depth + 1);
+				collectBindings(sourcedFile, variables, visitedFiles, contents, depth + 1);
+			}
+			continue;
+		}
+
+		if (auto match = autostartPattern.match(line); match.hasMatch()) {
+			contents.autostartCommands.append(substituteVariables(match.captured(1).trimmed(), variables));
+			continue;
+		}
+
+		if (auto match = environmentPattern.match(line); match.hasMatch()) {
+			auto assignment = substituteVariables(match.captured(1), variables);
+			auto separator = assignment.indexOf(u',');
+			if (separator > 0) {
+				contents.environment.append({assignment.first(separator).trimmed(), assignment.sliced(separator + 1).trimmed()});
 			}
 			continue;
 		}
@@ -193,7 +217,7 @@ void collectBindings(
 			continue;
 		}
 
-		bindings.append({
+		contents.bindings.append({
 		    .keys = *keys,
 		    .dispatcher = fields.at(dispatcherIndex).trimmed(),
 		    .argument = fields.mid(dispatcherIndex + 1).join(u',').trimmed(),
@@ -202,12 +226,21 @@ void collectBindings(
 	}
 }
 
-QList<ShortcutBinding> parseBindingFile(const QString& path) {
-	QList<ShortcutBinding> bindings;
+HyprlandConfigContents readHyprlandConfig(const QString& path) {
+	HyprlandConfigContents contents;
 	QHash<QString, QString> variables;
 	QSet<QString> visitedFiles;
-	collectBindings(path, variables, visitedFiles, bindings, 0);
-	return bindings;
+	collectBindings(path, variables, visitedFiles, contents, 0);
+	return contents;
+}
+
+QList<ShortcutBinding> parseBindingFile(const QString& path) { return readHyprlandConfig(path).bindings; }
+
+bool launchesQuickshell(const QString& command) {
+	static const QRegularExpression quickshellCommand(
+	    QStringLiteral("(^|[\\s/;&|])(qs|quickshell|caelestia\\s+shell)(\\s|$)")
+	);
+	return quickshellCommand.match(command).hasMatch();
 }
 
 OSStatus handleHotKeyEvent(
@@ -234,6 +267,21 @@ OSStatus handleHotKeyEvent(
 }
 
 void setSuperModifier(quint32 carbonModifier) { superModifier() = carbonModifier; }
+
+void runHyprlandAutostart() {
+	auto configPath = QDir(configHomeDirectory()).filePath(QStringLiteral("hypr/hyprland.conf"));
+	auto contents = readHyprlandConfig(configPath);
+
+	for (const auto& [name, value]: contents.environment) {
+		qputenv(name.toLocal8Bit().constData(), value.toLocal8Bit());
+	}
+
+	for (const auto& command: contents.autostartCommands) {
+		if (launchesQuickshell(command)) continue;
+		qCInfo(logShortcuts) << "Starting" << command << "from hyprland.conf";
+		ipc::HyprlandState::instance()->dispatch(QStringLiteral("exec ") + command);
+	}
+}
 
 std::optional<KeyCombination> parseKeyCombination(const QString& modifiers, const QString& key) {
 	static const QRegularExpression modifierSeparators(QStringLiteral("[\\s_+]+"));

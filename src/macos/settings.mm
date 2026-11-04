@@ -49,6 +49,7 @@ MacShellSettings readSettings() {
 			if (key == QStringLiteral("hide_system_ui")) settings.hideSystemUi = parseBoolean(value);
 			else if (key == QStringLiteral("launch_at_login")) settings.launchAtLogin = parseBoolean(value);
 			else if (key == QStringLiteral("super_key")) settings.superKey = value.trimmed().toLower();
+			else if (key == QStringLiteral("hyprland_autostart")) settings.hyprlandAutostart = parseBoolean(value);
 		}
 	}
 
