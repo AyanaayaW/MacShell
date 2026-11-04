@@ -3,6 +3,7 @@
 #include "launch/main.hpp"
 
 #ifdef __APPLE__
+#include "macos/compat/commands.hpp"
 #include "macos/hyprland/hyprctl.hpp"
 #include "services/notifications/local_bridge.hpp"
 #include "services/pam/subprocess.hpp"
@@ -24,6 +25,8 @@ int main(int argc, char** argv) {
 	if (auto helperExitCode = runPamHelperIfRequested(argc, argv)) return *helperExitCode;
 	if (isInvokedAs("notify-send", argc, argv)) return qs::service::notifications::runNotifySend(argc, argv);
 	if (isInvokedAs("hyprctl", argc, argv)) return qs::hyprland::ipc::runHyprctl(argc, argv);
+	if (auto compatExitCode = qs::macos::compat::runCompatCommand(argc, argv)) return *compatExitCode;
+	qs::macos::compat::exposeCompatCommandsOnPath();
 #endif
 	return qs::launch::main(argc, argv);
 }
