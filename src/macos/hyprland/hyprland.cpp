@@ -12,6 +12,7 @@
 #include <qtypes.h>
 #include <qvariant.h>
 
+#include "../toplevels.hpp"
 #include "spaces_backend.hpp"
 
 namespace qs::hyprland::ipc {
@@ -139,6 +140,13 @@ void HyprlandWorkspace::activate() { HyprlandState::instance()->activateWorkspac
 HyprlandToplevel::HyprlandToplevel(quint32 windowId, QObject* parent)
     : QObject(parent)
     , mWindowId(windowId) {}
+
+HyprlandToplevel* HyprlandToplevel::qmlAttachedProperties(QObject* object) {
+	if (auto* toplevel = qobject_cast<qs::wayland::toplevel::Toplevel*>(object)) {
+		return HyprlandState::instance()->toplevelForWindow(toplevel->windowId());
+	}
+	return qobject_cast<HyprlandToplevel*>(object);
+}
 
 QString HyprlandToplevel::address() const { return QString::number(this->mWindowId, 16); }
 

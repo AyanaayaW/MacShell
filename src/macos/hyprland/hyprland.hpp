@@ -191,9 +191,12 @@ class HyprlandToplevel: public QObject {
 	Q_PROPERTY(qs::hyprland::ipc::HyprlandMonitor* monitor READ default NOTIFY monitorChanged BINDABLE bindableMonitor);
 	QML_ELEMENT;
 	QML_UNCREATABLE("HyprlandToplevels must be retrieved from the HyprlandIpc object.");
+	QML_ATTACHED(HyprlandToplevel);
 
 public:
 	HyprlandToplevel(quint32 windowId, QObject* parent);
+
+	static HyprlandToplevel* qmlAttachedProperties(QObject* object);
 
 	void update(const macos::WindowDescription& window, HyprlandWorkspace* workspace, bool activated);
 
@@ -244,6 +247,9 @@ public:
 	[[nodiscard]] ObjectModel<HyprlandWorkspace>* workspaces() { return &this->mWorkspaces; }
 	[[nodiscard]] ObjectModel<HyprlandToplevel>* toplevels() { return &this->mToplevels; }
 	[[nodiscard]] HyprlandMonitor* monitorForName(const QString& name) const;
+	[[nodiscard]] HyprlandToplevel* toplevelForWindow(quint32 windowId) const {
+		return this->mToplevelsByWindow.value(windowId);
+	}
 
 	[[nodiscard]] QBindable<HyprlandMonitor*> bindableFocusedMonitor() { return &this->bFocusedMonitor; }
 	[[nodiscard]] QBindable<HyprlandWorkspace*> bindableFocusedWorkspace() {
