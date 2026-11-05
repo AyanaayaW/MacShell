@@ -43,6 +43,9 @@ int main(int argc, char** argv) {
 #ifdef __APPLE__
 	relaunchFromRealPathIfLinked(argv);
 	setenv("QML_DISABLE_DISTANCEFIELD", "1", 0);
+	setenv("QSG_PREFER_FULLSIZE_GLYPHCACHE_TEXTURES", "1", 0);
+	setenv("QML_USE_GLYPHCACHE_WORKAROUND", "1", 0);
+	setenv("QT_ENABLE_GLYPH_CACHE_WORKAROUND", "1", 0);
 	if (auto helperExitCode = runPamHelperIfRequested(argc, argv)) return *helperExitCode;
 	if (isInvokedAs("notify-send", argc, argv)) return qs::service::notifications::runNotifySend(argc, argv);
 	if (isInvokedAs("hyprctl", argc, argv)) return qs::hyprland::ipc::runHyprctl(argc, argv);
