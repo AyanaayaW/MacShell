@@ -42,6 +42,7 @@ bool isInvokedAs(const char* commandName, int argc, char** argv) {
 int main(int argc, char** argv) {
 #ifdef __APPLE__
 	relaunchFromRealPathIfLinked(argv);
+	setenv("QML_DISABLE_DISTANCEFIELD", "1", 0);
 	if (auto helperExitCode = runPamHelperIfRequested(argc, argv)) return *helperExitCode;
 	if (isInvokedAs("notify-send", argc, argv)) return qs::service::notifications::runNotifySend(argc, argv);
 	if (isInvokedAs("hyprctl", argc, argv)) return qs::hyprland::ipc::runHyprctl(argc, argv);

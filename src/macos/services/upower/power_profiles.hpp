@@ -64,6 +64,7 @@ public:
 	static PowerProfiles* instance();
 
 	void setProfile(PowerProfile::Enum profile);
+	void refreshFromSystem();
 
 	[[nodiscard]] QBindable<PowerProfile::Enum> bindableProfile() const { return &this->bProfile; }
 
@@ -72,8 +73,6 @@ signals:
 
 private:
 	PowerProfiles();
-
-	void refreshFromSystem();
 
 	Q_OBJECT_BINDABLE_PROPERTY(PowerProfiles, PowerProfile::Enum, bProfile, &PowerProfiles::profileChanged);
 };

@@ -321,6 +321,22 @@ std::optional<QIcon> applicationIcon(const QString& iconName) {
 
 	auto path = applicationPathsByKey().value(key);
 	if (path.isEmpty() && iconName.startsWith(u'/') && QFileInfo::exists(iconName)) path = iconName;
+	if (path.isEmpty()) {
+		NSURL* registeredApplication =
+		    [NSWorkspace.sharedWorkspace URLForApplicationWithBundleIdentifier:iconName.toNSString()];
+		if (registeredApplication) path = QString::fromNSString(registeredApplication.path);
+	}
+	if (path.isEmpty()) {
+		NSString* requestedName = iconName.toNSString();
+		for (NSRunningApplication* application in NSWorkspace.sharedWorkspace.runningApplications) {
+			auto matches = [application.bundleIdentifier caseInsensitiveCompare:requestedName] == NSOrderedSame
+			            || [application.localizedName caseInsensitiveCompare:requestedName] == NSOrderedSame;
+			if (matches && application.bundleURL) {
+				path = QString::fromNSString(application.bundleURL.path);
+				break;
+			}
+		}
+	}
 	if (path.isEmpty()) return std::nullopt;
 
 	NSString* nativePath = path.toNSString();

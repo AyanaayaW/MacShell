@@ -4,6 +4,7 @@
 #include <qloggingcategory.h>
 #include <qmetaobject.h>
 #include <qobject.h>
+#include <qprocess.h>
 #include <qstring.h>
 
 #import <Foundation/Foundation.h>
@@ -16,15 +17,19 @@ Q_LOGGING_CATEGORY(logPowerProfiles, "quickshell.service.powerprofiles", QtWarni
 
 bool isLowPowerModeEnabled() { return NSProcessInfo.processInfo.lowPowerModeEnabled; }
 
-bool setLowPowerModeEnabled(bool enabled) {
-	NSString* source = [NSString
-	    stringWithFormat:@"do shell script \"/usr/bin/pmset -a lowpowermode %d\" with administrator privileges",
-	                     enabled ? 1 : 0];
-	NSAppleScript* script = [[NSAppleScript alloc] initWithSource:source];
-
-	NSDictionary* errorInfo = nil;
-	[script executeAndReturnError:&errorInfo];
-	return errorInfo == nil;
+void requestLowPowerMode(bool enabled) {
+	auto script = QStringLiteral(
+	                  "do shell script \"/usr/bin/pmset -a lowpowermode %1\" with administrator privileges "
+	                  "with prompt \"MacShell wants to change Low Power Mode.\""
+	)
+	                  .arg(enabled ? 1 : 0);
+	auto* process = new QProcess();
+	QObject::connect(process, &QProcess::finished, process, [process](int exitCode) {
+		if (exitCode != 0) qCWarning(logPowerProfiles) << "Changing Low Power Mode was cancelled or failed.";
+		PowerProfiles::instance()->refreshFromSystem();
+		process->deleteLater();
+	});
+	process->start(QStringLiteral("/usr/bin/osascript"), {QStringLiteral("-e"), script});
 }
 
 }
@@ -70,18 +75,16 @@ void PowerProfiles::refreshFromSystem() {
 
 void PowerProfiles::setProfile(PowerProfile::Enum profile) {
 	if (profile == PowerProfile::Performance) {
-		qCWarning(logPowerProfiles) << "The Performance profile is not available on this Mac.";
-		return;
+		qCInfo(logPowerProfiles) << "This Mac has no Performance profile; using Balanced.";
 	}
 
 	auto wantsLowPowerMode = profile == PowerProfile::PowerSaver;
-	if (wantsLowPowerMode == isLowPowerModeEnabled()) return;
-
-	if (!setLowPowerModeEnabled(wantsLowPowerMode)) {
-		qCWarning(logPowerProfiles) << "Changing Low Power Mode was cancelled or failed.";
+	if (wantsLowPowerMode == isLowPowerModeEnabled()) {
+		this->refreshFromSystem();
+		return;
 	}
 
-	this->refreshFromSystem();
+	requestLowPowerMode(wantsLowPowerMode);
 }
 
 PowerProfilesQml::PowerProfilesQml(QObject* parent): QObject(parent) {
