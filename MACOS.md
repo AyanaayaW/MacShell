@@ -27,7 +27,8 @@ qs --install yay -S caelestia-shell
 qs --install "git clone https://github.com/someone/dots && cd dots && ./install.sh"
 ```
 
-`pacman`, `yay`, `paru`, `apt`, `dnf`, `zypper` and `git clone` are understood. Each package is matched to:
+`pacman`, `yay`, `paru`, `apt`, `dnf`, `zypper`, `git clone`, `curl ... | bash` installers hosted on GitHub and plain
+GitHub links are understood. Each package is matched to:
 
 | Linux package | On macOS |
 |---|---|
@@ -36,6 +37,12 @@ qs --install "git clone https://github.com/someone/dots && cd dots && ./install.
 | tools with a macOS build in Homebrew | `brew install` |
 | AUR packages and git repositories containing a `shell.qml` | copied to `~/.config/quickshell/<name>` |
 | anything else | reported as having no macOS equivalent |
+
+When a repository holds several `shell.qml` files, the one with the most QML files is installed. Sibling configs it
+imports by name (for example `import stage.services`) are installed next to it, and the configs folder is on the QML
+import path. QML modules it imports from elsewhere in the repository are copied to
+`~/Library/Application Support/MacShell/qml`, and modules declared in a CMake project are built against Homebrew Qt
+(`cmake` and `ninja` required) and relinked to MacShell's own Qt.
 
 The plan is shown before anything installs. `--noconfirm` or `-y` skips the prompt. Linux-only steps such as
 `./install.sh` are listed and skipped, and an existing config folder is never overwritten. Wrap the command in quotes

@@ -187,7 +187,14 @@ void parseSegment(const QStringList& segment, LinuxInstallRequest& request) {
 	} else if (manager == "git") {
 		parseGitClone(arguments, request);
 	} else {
-		request.skippedCommands << segment.mid(commandIndex).join(' ');
+		qsizetype repositoriesBefore = request.repositories.size();
+		for (const auto& word: segment) {
+			QString repository = githubRepositoryFromWord(word);
+			if (!repository.isEmpty()) request.repositories << repository;
+		}
+		if (request.repositories.size() == repositoriesBefore) {
+			request.skippedCommands << segment.mid(commandIndex).join(' ');
+		}
 	}
 }
 
@@ -273,6 +280,45 @@ QString quickshellConfigNameFor(const QString& linuxPackage) {
 bool isCoveredByMacShell(const QString& linuxPackage) {
 	QString name = stripPackageSuffixes(linuxPackage);
 	return name.startsWith("qt6-") || name.startsWith("qt5-") || packagesCoveredByMacShell().contains(name);
+}
+
+QString githubRepositoryFromWord(const QString& word) {
+	static const QRegularExpression githubPath(
+	    R"((?:https?://)?(?:raw\.githubusercontent\.com|github\.com)/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+))"
+	);
+	auto match = githubPath.match(word);
+	if (!match.hasMatch()) return {};
+	QString repository = match.captured(2);
+	if (repository.endsWith(".git")) repository.chop(4);
+	return "https://github.com/" + match.captured(1) + '/' + repository;
+}
+
+QStringList importedModuleUris(const QString& qmlSource) {
+	static const QRegularExpression moduleImport(R"(^\s*import\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*))",
+	                                             QRegularExpression::MultilineOption);
+	QStringList uris;
+	auto matches = moduleImport.globalMatch(qmlSource);
+	while (matches.hasNext()) uris << matches.next().captured(1);
+	uris.removeDuplicates();
+	return uris;
+}
+
+bool isBuiltinModuleUri(const QString& uri) {
+	QString firstComponent = uri.section('.', 0, 0);
+	return firstComponent.startsWith("Qt") || firstComponent == "Quickshell" || firstComponent == "qs"
+	    || firstComponent == "org";
+}
+
+qsizetype matchingModuleDepth(const QStringList& directoryComponents, const QStringList& uriComponents) {
+	if (directoryComponents.isEmpty() || uriComponents.isEmpty()) return 0;
+	qsizetype depth = 1;
+	while (depth < uriComponents.size() && depth < directoryComponents.size()
+	       && directoryComponents.at(directoryComponents.size() - 1 - depth)
+	              == uriComponents.at(uriComponents.size() - 1 - depth))
+	{
+		++depth;
+	}
+	return depth;
 }
 
 }

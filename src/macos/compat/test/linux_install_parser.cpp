@@ -59,6 +59,35 @@ private slots:
 		QVERIFY(isCoveredByMacShell("qt6-declarative"));
 		QVERIFY(!isCoveredByMacShell("foot"));
 	}
+
+	static void curlInstallerBecomesRepository() {
+		auto request = parseLinuxInstallCommand(
+		    {"curl", "-fsSL", "https://raw.githubusercontent.com/ryoku-dev/ryoku/main/ryoku-shell-installer/install.sh", "|", "bash"}
+		);
+		QCOMPARE(request.repositories, QStringList({"https://github.com/ryoku-dev/ryoku"}));
+		QCOMPARE(request.skippedCommands, QStringList({"bash"}));
+	}
+
+	static void plainGithubLinkBecomesRepository() {
+		auto request = parseLinuxInstallCommand({"https://github.com/caelestia-dots/shell.git"});
+		QCOMPARE(request.repositories, QStringList({"https://github.com/caelestia-dots/shell"}));
+		QVERIFY(request.skippedCommands.isEmpty());
+	}
+
+	static void importsAreCollected() {
+		auto uris = importedModuleUris("import QtQuick\n  import Ryoku.Ui.Singletons\nimport \"../kit\"\nimport shell.services 1.0\n");
+		QCOMPARE(uris, QStringList({"QtQuick", "Ryoku.Ui.Singletons", "shell.services"}));
+		QVERIFY(isBuiltinModuleUri("Qt5Compat.GraphicalEffects"));
+		QVERIFY(isBuiltinModuleUri("Quickshell.Io"));
+		QVERIFY(isBuiltinModuleUri("qs.Commons"));
+		QVERIFY(!isBuiltinModuleUri("Ryoku.Blobs"));
+	}
+
+	static void moduleDepthClimbsMatchingFolders() {
+		QCOMPARE(matchingModuleDepth({"repo", "quickshell", "stage", "services"}, {"stage", "services"}), qsizetype(2));
+		QCOMPARE(matchingModuleDepth({"repo", "ryoku", "ui"}, {"Ryoku", "Ui"}), qsizetype(1));
+		QCOMPARE(matchingModuleDepth({"build", "qml", "Ryoku", "Blobs"}, {"Ryoku", "Blobs"}), qsizetype(2));
+	}
 };
 
 QTEST_MAIN(TestLinuxInstallParser);

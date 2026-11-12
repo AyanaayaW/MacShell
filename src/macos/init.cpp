@@ -83,6 +83,8 @@ class MacPlugin: public QsEnginePlugin {
 	}
 
 	void constructGeneration(EngineGeneration& generation) override {
+		QDir configsRoot = generation.rootPath;
+		if (configsRoot.cdUp()) generation.engine->addImportPath(configsRoot.absolutePath());
 		generation.engine->addImportPath(QDir::homePath() + "/Library/Application Support/MacShell/qml");
 		qs::macos::aliasConfigFontFamilies(generation.rootPath.absolutePath());
 	}

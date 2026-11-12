@@ -5,11 +5,14 @@
 #include <qcoreapplication.h>
 #include <qdir.h>
 #include <qdiriterator.h>
+#include <qfile.h>
 #include <qfileinfo.h>
+#include <qhash.h>
 #include <qjsonarray.h>
 #include <qjsondocument.h>
 #include <qjsonobject.h>
 #include <qprocess.h>
+#include <qregularexpression.h>
 #include <qstandardpaths.h>
 #include <qtemporarydir.h>
 #include <qurl.h>
@@ -160,29 +163,246 @@ QString configNameFromRepositoryUrl(const QString& url) {
 	return quickshellConfigNameFor(repositoryName.toLower());
 }
 
+qsizetype countQmlFiles(const QString& directory) {
+	qsizetype count = 0;
+	QDirIterator iterator(directory, {"*.qml"}, QDir::Files, QDirIterator::Subdirectories);
+	while (iterator.hasNext()) {
+		iterator.next();
+		++count;
+	}
+	return count;
+}
+
 QString findShellEntryDirectory(const QString& repositoryPath) {
 	QString bestDirectory;
-	qsizetype bestDepth = -1;
+	qsizetype mostQmlFiles = -1;
 	QDirIterator iterator(repositoryPath, {"shell.qml"}, QDir::Files | QDir::Hidden, QDirIterator::Subdirectories);
 	while (iterator.hasNext()) {
-		QString relativePath = QDir(repositoryPath).relativeFilePath(iterator.next());
-		if (relativePath.startsWith(".git/")) continue;
-		qsizetype depth = relativePath.count('/');
-		if (bestDepth < 0 || depth < bestDepth) {
-			bestDepth = depth;
-			bestDirectory = QFileInfo(iterator.filePath()).absolutePath();
+		QString entryPath = iterator.next();
+		if (QDir(repositoryPath).relativeFilePath(entryPath).startsWith(".git/")) continue;
+		QString directory = QFileInfo(entryPath).absolutePath();
+		qsizetype qmlFiles = countQmlFiles(directory);
+		if (qmlFiles > mostQmlFiles) {
+			mostQmlFiles = qmlFiles;
+			bestDirectory = directory;
 		}
 	}
 	return bestDirectory;
 }
 
-bool containsCompiledPlugin(const QString& repositoryPath) {
-	if (QFileInfo::exists(repositoryPath + "/CMakeLists.txt")) return true;
-	QDirIterator iterator(repositoryPath, {"*.cpp", "*.cc", "*.rs"}, QDir::Files, QDirIterator::Subdirectories);
-	return iterator.hasNext();
+QString readText(const QString& path) {
+	QFile file(path);
+	if (!file.open(QIODevice::ReadOnly)) return {};
+	return QString::fromUtf8(file.readAll());
 }
 
-bool installQuickshellConfig(const QString& repositoryUrl, QString configName) {
+QStringList moduleUrisImportedUnder(const QString& directory) {
+	QStringList uris;
+	QDirIterator iterator(directory, {"*.qml"}, QDir::Files, QDirIterator::Subdirectories);
+	while (iterator.hasNext()) uris << importedModuleUris(readText(iterator.next()));
+	uris.removeDuplicates();
+	return uris;
+}
+
+QString declaredModuleName(const QString& qmldirPath) {
+	static const QRegularExpression moduleLine(R"(^\s*module\s+(\S+))", QRegularExpression::MultilineOption);
+	return moduleLine.match(readText(qmldirPath)).captured(1);
+}
+
+QHash<QString, QString> moduleDirectoriesUnder(const QString& root) {
+	QHash<QString, QString> modules;
+	QDirIterator iterator(root, {"qmldir"}, QDir::Files | QDir::Hidden, QDirIterator::Subdirectories);
+	while (iterator.hasNext()) {
+		QString qmldirPath = iterator.next();
+		if (qmldirPath.contains("/.git/")) continue;
+		QString moduleName = declaredModuleName(qmldirPath);
+		if (!moduleName.isEmpty() && !modules.contains(moduleName)) {
+			modules.insert(moduleName, QFileInfo(qmldirPath).absolutePath());
+		}
+	}
+	return modules;
+}
+
+QStringList siblingConfigsUsedBy(const QString& entryDirectory) {
+	QDir parentDirectory = QFileInfo(entryDirectory).dir();
+	QStringList siblingNames = parentDirectory.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+	QString entryName = QFileInfo(entryDirectory).fileName();
+
+	QStringList included {entryName};
+	for (qsizetype index = 0; index < included.size(); ++index) {
+		for (const auto& uri: moduleUrisImportedUnder(parentDirectory.filePath(included.at(index)))) {
+			QString firstComponent = uri.section('.', 0, 0);
+			if (siblingNames.contains(firstComponent) && !included.contains(firstComponent)) included << firstComponent;
+		}
+	}
+	return included;
+}
+
+bool importsModulesNamedAfter(const QString& directory, const QStringList& folderNames) {
+	auto uris = moduleUrisImportedUnder(directory);
+	return std::ranges::any_of(uris, [&](const QString& uri) { return folderNames.contains(uri.section('.', 0, 0)); });
+}
+
+QString macShellModuleRoot() { return QDir::homePath() + "/Library/Application Support/MacShell/qml"; }
+
+QString findTool(const QString& name) {
+	QString onPath = QStandardPaths::findExecutable(name);
+	if (!onPath.isEmpty()) return onPath;
+	for (const auto& prefix: {QStringLiteral("/opt/homebrew/bin/"), QStringLiteral("/usr/local/bin/")}) {
+		if (QFileInfo(prefix + name).isExecutable()) return prefix + name;
+	}
+	return {};
+}
+
+QStringList commandOutputLines(const QString& program, const QStringList& arguments) {
+	QByteArray output;
+	if (!runQuietly(program, arguments, &output)) return {};
+	return QString::fromUtf8(output).split('\n', Qt::SkipEmptyParts);
+}
+
+void bringInBuiltLibraries(const QString& moduleDirectory, const QString& buildDirectory) {
+	static const QRegularExpression runtimeLibraryReference(R"(^\s*@rpath/([^/\s]+\.dylib))");
+	QStringList pending;
+	QDirIterator modules(moduleDirectory, {"*.dylib", "*.so"}, QDir::Files);
+	while (modules.hasNext()) pending << modules.next();
+
+	while (!pending.isEmpty()) {
+		QString library = pending.takeFirst();
+		for (const auto& line: commandOutputLines("/usr/bin/otool", {"-L", library})) {
+			auto match = runtimeLibraryReference.match(line);
+			if (!match.hasMatch()) continue;
+			QString libraryName = match.captured(1);
+			QString destination = moduleDirectory + '/' + libraryName;
+			if (QFileInfo::exists(destination)) continue;
+			QDirIterator builtFiles(buildDirectory, {libraryName}, QDir::Files, QDirIterator::Subdirectories);
+			if (!builtFiles.hasNext()) continue;
+			QFile::copy(builtFiles.next(), destination);
+			pending << destination;
+		}
+	}
+}
+
+void relinkAgainstBundledQt(const QString& moduleDirectory) {
+	static const QRegularExpression qtFrameworkReference(R"(^\s*(\S*/(Qt\w+\.framework/\S+)))");
+	static const QRegularExpression runtimePathEntry(R"(^\s*path\s+(\S+))");
+	QDirIterator iterator(moduleDirectory, {"*.dylib", "*.so"}, QDir::Files, QDirIterator::Subdirectories);
+	while (iterator.hasNext()) {
+		QString library = iterator.next();
+		for (const auto& line: commandOutputLines("/usr/bin/otool", {"-L", library})) {
+			auto match = qtFrameworkReference.match(line);
+			if (match.hasMatch() && !match.captured(1).startsWith("@rpath/")) {
+				runQuietly("/usr/bin/install_name_tool", {"-change", match.captured(1), "@rpath/" + match.captured(2), library});
+			}
+		}
+		for (const auto& line: commandOutputLines("/usr/bin/otool", {"-l", library})) {
+			auto match = runtimePathEntry.match(line);
+			if (match.hasMatch() && match.captured(1).startsWith('/')) {
+				runQuietly("/usr/bin/install_name_tool", {"-delete_rpath", match.captured(1), library});
+			}
+		}
+		runQuietly("/usr/bin/install_name_tool", {"-add_rpath", "@loader_path", library});
+		runQuietly("/usr/bin/codesign", {"--force", "--sign", "-", library});
+	}
+}
+
+bool copyModuleDirectory(const QString& source, const QString& uriPath, const QString& buildDirectory = {}) {
+	QString destination = macShellModuleRoot() + '/' + uriPath;
+	if (QFileInfo::exists(destination)) {
+		printLine("   " + uriPath.split('/').join('.') + " already installed");
+		return true;
+	}
+	QDir().mkpath(QFileInfo(destination).absolutePath());
+	if (!runQuietly("/usr/bin/ditto", {source, destination})) {
+		printError(":: could not copy module to " + destination);
+		return false;
+	}
+	if (!buildDirectory.isEmpty()) bringInBuiltLibraries(destination, buildDirectory);
+	relinkAgainstBundledQt(destination);
+	printLine("   Installed module " + uriPath.split('/').join('.'));
+	return true;
+}
+
+QString findCMakeProjectDeclaring(const QString& root, const QString& uri) {
+	QRegularExpression uriDeclaration("\\bURI\\s+" + QRegularExpression::escape(uri) + "\\b");
+	QDirIterator iterator(root, {"CMakeLists.txt"}, QDir::Files, QDirIterator::Subdirectories);
+	while (iterator.hasNext()) {
+		QString cmakePath = iterator.next();
+		if (uriDeclaration.match(readText(cmakePath)).hasMatch()) return QFileInfo(cmakePath).absolutePath();
+	}
+	return {};
+}
+
+QString buildCMakeProject(const QString& projectDirectory, const QString& buildDirectory, const QString& homebrew) {
+	QString cmake = findTool("cmake");
+	QString ninja = findTool("ninja");
+	if (cmake.isEmpty() || ninja.isEmpty()) {
+		printError(":: building " + projectDirectory + " needs cmake and ninja: qs --install sudo pacman -S cmake ninja");
+		return {};
+	}
+	QString qtPrefix = homebrew.isEmpty() ? QString() : QFileInfo(homebrew).absolutePath() + "/../opt/qt";
+	printLine(":: Building compiled modules in " + QFileInfo(projectDirectory).fileName());
+	bool configured = runVisibly(
+	    cmake,
+	    {"-S", projectDirectory, "-B", buildDirectory, "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release",
+	     "-DCMAKE_MAKE_PROGRAM=" + ninja, "-DCMAKE_PREFIX_PATH=" + QDir::cleanPath(qtPrefix)}
+	);
+	if (!configured || !runVisibly(cmake, {"--build", buildDirectory})) {
+		printError(":: build failed in " + projectDirectory);
+		return {};
+	}
+	return buildDirectory;
+}
+
+bool installModulesFor(const QStringList& uris, const QString& checkoutPath, const QString& workspacePath, const QString& homebrew) {
+	QHash<QString, QString> sourceModules = moduleDirectoriesUnder(checkoutPath);
+	QHash<QString, QString> builtProjects;
+	QStringList orderedUris = uris;
+	std::sort(orderedUris.begin(), orderedUris.end(), [](const QString& left, const QString& right) {
+		return left.size() < right.size();
+	});
+
+	bool allInstalled = true;
+	QStringList missingModules;
+	for (const auto& uri: orderedUris) {
+		QStringList uriComponents = uri.split('.');
+		QString uriPath = uriComponents.join('/');
+		if (QFileInfo::exists(macShellModuleRoot() + '/' + uriPath + "/qmldir")) continue;
+
+		if (sourceModules.contains(uri)) {
+			QString moduleDirectory = sourceModules.value(uri);
+			qsizetype depth = matchingModuleDepth(QDir::fromNativeSeparators(moduleDirectory).split('/'), uriComponents);
+			QDir sourceRoot(moduleDirectory);
+			for (qsizetype level = 1; level < depth; ++level) sourceRoot.cdUp();
+			allInstalled &= copyModuleDirectory(sourceRoot.absolutePath(), uriComponents.mid(0, uriComponents.size() - depth + 1).join('/'));
+			continue;
+		}
+
+		QString projectDirectory = findCMakeProjectDeclaring(checkoutPath, uri);
+		if (projectDirectory.isEmpty()) {
+			missingModules << uri;
+			continue;
+		}
+		if (!builtProjects.contains(projectDirectory)) {
+			QString buildDirectory = workspacePath + "/build-" + QString::number(builtProjects.size());
+			builtProjects.insert(projectDirectory, buildCMakeProject(projectDirectory, buildDirectory, homebrew));
+		}
+		QString buildDirectory = builtProjects.value(projectDirectory);
+		QString builtModule = buildDirectory.isEmpty() ? QString() : moduleDirectoriesUnder(buildDirectory).value(uri);
+		if (builtModule.isEmpty()) {
+			allInstalled = false;
+			missingModules << uri;
+			continue;
+		}
+		allInstalled &= copyModuleDirectory(builtModule, uriPath, buildDirectory);
+	}
+
+	for (const auto& uri: missingModules) {
+		printLine("   Module " + uri + " was not found or could not be built; parts using it will not load");
+	}
+	return allInstalled;
+}
+
+bool installQuickshellConfig(const QString& repositoryUrl, QString configName, const QString& homebrew) {
 	QTemporaryDir workspace;
 	if (!workspace.isValid()) {
 		printError(":: could not create a temporary folder");
@@ -202,31 +422,52 @@ bool installQuickshellConfig(const QString& repositoryUrl, QString configName) {
 		return false;
 	}
 
-	static const QStringList genericFolderNames {"quickshell", "shell", "qs", "config", ".config", "repository"};
 	QString entryFolderName = QFileInfo(entryDirectory).fileName();
-	if (entryDirectory != checkoutPath && !genericFolderNames.contains(entryFolderName.toLower())) {
+	QStringList configFolders = entryDirectory == checkoutPath ? QStringList {entryFolderName} : siblingConfigsUsedBy(entryDirectory);
+	bool linkedConfigs = configFolders.size() > 1 || importsModulesNamedAfter(entryDirectory, configFolders);
+
+	static const QStringList genericFolderNames {"quickshell", "shell", "qs", "config", ".config", "repository"};
+	if (linkedConfigs) {
+		configName = entryFolderName;
+	} else if (entryDirectory != checkoutPath && !genericFolderNames.contains(entryFolderName.toLower())) {
 		configName = entryFolderName;
 	}
 	if (configName.isEmpty()) configName = configNameFromRepositoryUrl(repositoryUrl);
 
 	QString configsRoot = QDir::homePath() + "/.config/quickshell";
-	QString destination = configsRoot + '/' + configName;
-	if (QFileInfo::exists(destination)) {
-		printLine(":: " + destination + " already exists, leaving it untouched");
-		return true;
-	}
 	QDir().mkpath(configsRoot);
-	if (!runQuietly("/usr/bin/ditto", {entryDirectory, destination})) {
-		printError(":: could not copy the config to " + destination);
-		return false;
+	QDir entryParent = QFileInfo(entryDirectory).dir();
+	QStringList importedUris;
+	bool allSucceeded = true;
+
+	for (const auto& folder: configFolders) {
+		QString source = folder == entryFolderName ? entryDirectory : entryParent.filePath(folder);
+		QString installedName = folder == entryFolderName ? configName : folder;
+		QString destination = configsRoot + '/' + installedName;
+		importedUris << moduleUrisImportedUnder(source);
+		if (QFileInfo::exists(destination)) {
+			printLine(":: " + destination + " already exists, leaving it untouched");
+			continue;
+		}
+		if (!runQuietly("/usr/bin/ditto", {source, destination})) {
+			printError(":: could not copy the config to " + destination);
+			allSucceeded = false;
+			continue;
+		}
+		printLine(":: Installed Quickshell config '" + installedName + "' to " + destination);
 	}
 
-	printLine(":: Installed Quickshell config '" + configName + "' to " + destination);
-	if (containsCompiledPlugin(checkoutPath)) {
-		printLine("   It ships a compiled plugin, which needs a macOS port before every part works.");
+	importedUris.removeDuplicates();
+	importedUris.removeIf([&](const QString& uri) {
+		return isBuiltinModuleUri(uri) || configFolders.contains(uri.section('.', 0, 0));
+	});
+	if (!importedUris.isEmpty()) {
+		printLine(":: Installing the QML modules it imports");
+		allSucceeded &= installModulesFor(importedUris, checkoutPath, workspace.path(), homebrew);
 	}
+
 	printLine("   Start it with: qs -c " + configName);
-	return true;
+	return allSucceeded;
 }
 
 QString describe(const ResolvedPackage& package) {
@@ -313,7 +554,7 @@ int runLinuxInstall(int argc, char** argv) {
 	if (!formulae.isEmpty()) allSucceeded &= runVisibly(homebrew, QStringList {"install", "--formula"} + formulae);
 	if (!casks.isEmpty()) allSucceeded &= runVisibly(homebrew, QStringList {"install", "--cask"} + casks);
 	for (const auto& repository: repositories) {
-		allSucceeded &= installQuickshellConfig(repository.target, repository.configName);
+		allSucceeded &= installQuickshellConfig(repository.target, repository.configName, homebrew);
 	}
 	return allSucceeded ? 0 : 1;
 }
