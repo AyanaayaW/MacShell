@@ -21,5 +21,6 @@ int runSwww(int argc, char** argv);
 int runHyprpicker(int argc, char** argv);
 int runGrim(int argc, char** argv);
 int runNproc(int argc, char** argv);
+int runLinuxInstall(int argc, char** argv);
 
 }

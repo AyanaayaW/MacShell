@@ -49,6 +49,7 @@ int main(int argc, char** argv) {
 	if (auto helperExitCode = runPamHelperIfRequested(argc, argv)) return *helperExitCode;
 	if (isInvokedAs("notify-send", argc, argv)) return qs::service::notifications::runNotifySend(argc, argv);
 	if (isInvokedAs("hyprctl", argc, argv)) return qs::hyprland::ipc::runHyprctl(argc, argv);
+	if (argc > 1 && std::strcmp(argv[1], "--install") == 0) return qs::macos::compat::runLinuxInstall(argc, argv);
 	if (auto compatExitCode = qs::macos::compat::runCompatCommand(argc, argv)) return *compatExitCode;
 	qs::macos::compat::exposeCompatCommandsOnPath();
 #endif

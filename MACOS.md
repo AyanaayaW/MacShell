@@ -17,6 +17,30 @@ example `ln -s /Applications/MacShell.app/Contents/MacOS/qs ~/.local/bin/qs`.
 
 QML plugins that are built for macOS go in `~/Library/Application Support/MacShell/qml`.
 
+## Installing what a rice asks for
+
+Paste the Linux install command from a rice's README after `qs --install`:
+
+```sh
+qs --install sudo pacman -S --needed fish btop ttf-rubik-vf
+qs --install yay -S caelestia-shell
+qs --install "git clone https://github.com/someone/dots && cd dots && ./install.sh"
+```
+
+`pacman`, `yay`, `paru`, `apt`, `dnf`, `zypper` and `git clone` are understood. Each package is matched to:
+
+| Linux package | On macOS |
+|---|---|
+| Quickshell, Qt, Hyprland, PipeWire, NetworkManager, wl-clipboard, ... | already built into MacShell |
+| `ttf-*`, `otf-*`, `*-nerd` fonts | the matching Homebrew font |
+| tools with a macOS build in Homebrew | `brew install` |
+| AUR packages and git repositories containing a `shell.qml` | copied to `~/.config/quickshell/<name>` |
+| anything else | reported as having no macOS equivalent |
+
+The plan is shown before anything installs. `--noconfirm` or `-y` skips the prompt. Linux-only steps such as
+`./install.sh` are listed and skipped, and an existing config folder is never overwritten. Wrap the command in quotes
+when it contains `&&` or `;`.
+
 ## Your Hyprland config
 
 MacShell takes the place of the compositor and reads `~/.config/hypr/hyprland.conf`, including every file it `source`s:
