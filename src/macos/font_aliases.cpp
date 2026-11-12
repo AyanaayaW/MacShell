@@ -54,7 +54,6 @@ void useIconFontForMissingSymbols() {
 
 	auto iconFamily = installedIconFontFamily();
 	if (iconFamily.isEmpty()) return;
-	QFontDatabase::addApplicationFallbackFontFamily(QChar::Script_Unknown, iconFamily);
 	QFontDatabase::addApplicationFallbackFontFamily(QChar::Script_Common, iconFamily);
 }
 
