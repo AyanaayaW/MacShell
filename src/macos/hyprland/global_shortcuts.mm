@@ -471,6 +471,7 @@ GlobalShortcut::~GlobalShortcut() {
 }
 
 void GlobalShortcut::setPressedState(bool pressed) {
+	if (pressed && this->mPressed) this->setPressedState(false);
 	if (pressed == this->mPressed) return;
 	this->mPressed = pressed;
 	emit this->pressedChanged();
