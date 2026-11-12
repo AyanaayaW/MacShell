@@ -193,7 +193,7 @@ void parseSegment(const QStringList& segment, LinuxInstallRequest& request) {
 			if (!repository.isEmpty()) request.repositories << repository;
 		}
 		if (request.repositories.size() != repositoriesBefore) return;
-		static const QRegularExpression webAddress(R"pattern(https?://[^\s"'()<>|;]+)pattern");
+		static const QRegularExpression webAddress(R"pattern(https://[^\s"'()<>|;]+)pattern");
 		bool foundInstallerScript = false;
 		for (const auto& word: segment) {
 			auto match = webAddress.match(word);
@@ -303,7 +303,7 @@ QString githubRepositoryFromWord(const QString& word) {
 
 QStringList githubRepositoriesIn(const QString& text) {
 	static const QRegularExpression githubAddress(
-	    R"((?:https?://)?(?:raw\.githubusercontent\.com|github\.com)/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)"
+	    R"((?<![A-Za-z0-9.-])(?:https://)?(?:raw\.githubusercontent\.com|github\.com)/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)"
 	);
 	QStringList repositories;
 	auto matches = githubAddress.globalMatch(text);

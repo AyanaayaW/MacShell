@@ -144,6 +144,8 @@ private slots:
 		                         "curl https://raw.githubusercontent.com/someone/dotfiles/main/rice.dotinst\n"),
 		    QStringList({"https://github.com/someone/rice-installer", "https://github.com/someone/dotfiles"})
 		);
+		QVERIFY(githubRepositoriesIn("curl https://notgithub.com/a/b").isEmpty());
+		QVERIFY(parseLinuxInstallCommand({"curl", "http://example.com/install.sh", "|", "sh"}).installerScripts.isEmpty());
 		QCOMPARE(configNameFromInstallerUrl("https://www.ml4w.com/os/stable"), QString("ml4w"));
 		QCOMPARE(shellShortcutBinds("local mainMod = \"SUPER\"\nhl.bind(mainMod .. \" + D\", hl.dsp.global(\"rice:menu\"))\n"),
 		         QStringList({"bind = SUPER, D, global, rice:menu"}));

@@ -12,6 +12,7 @@
 #include <qjsondocument.h>
 #include <qjsonobject.h>
 #include <qprocess.h>
+#include <qset.h>
 #include <qregularexpression.h>
 #include <qstandardpaths.h>
 #include <qtemporarydir.h>
@@ -625,7 +626,9 @@ bool installQuickshellConfig(const QString& repositoryUrl, QString configName, c
 	} else if (entryDirectory != checkoutPath && !genericFolderNames.contains(entryFolderName.toLower())) {
 		configName = entryFolderName;
 	}
-	if (configName.isEmpty()) configName = configNameFromRepositoryUrl(repositoryUrl);
+	static QSet<QString> configNamesInstalledThisRun;
+	if (configName.isEmpty() || configNamesInstalledThisRun.contains(configName)) configName = configNameFromRepositoryUrl(repositoryUrl);
+	configNamesInstalledThisRun.insert(configName);
 
 	QString configsRoot = QDir::homePath() + "/.config/quickshell";
 	QDir().mkpath(configsRoot);
@@ -718,7 +721,7 @@ int runLinuxInstall(int argc, char** argv) {
 	for (const auto& script: request.installerScripts) {
 		printLine(":: Reading the installer at " + script + " (it is not run)");
 		QByteArray scriptText;
-		if (!runQuietly("/usr/bin/curl", {"-fsSL", "--max-time", "30", script}, &scriptText)) {
+		if (!runQuietly("/usr/bin/curl", {"-fsSL", "--proto", "=https", "--proto-redir", "=https", "--max-time", "30", script}, &scriptText)) {
 			printError(":: could not download " + script);
 			continue;
 		}
@@ -768,7 +771,10 @@ int runLinuxInstall(int argc, char** argv) {
 		printLine(":: Nothing to install");
 		return everythingResolved ? 0 : 1;
 	}
-	if (!request.skipConfirmation && !confirmProceed()) {
+	if (!discoveredRepositories.isEmpty()) {
+		printLine(":: The repositories above were found inside the installer; check them before continuing");
+	}
+	if ((!request.skipConfirmation || !discoveredRepositories.isEmpty()) && !confirmProceed()) {
 		printLine(":: Cancelled");
 		return 1;
 	}
