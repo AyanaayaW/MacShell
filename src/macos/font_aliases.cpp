@@ -36,9 +36,33 @@ QHash<QString, QString> installedFamiliesByKey() {
 	return families;
 }
 
+QString installedIconFontFamily() {
+	QString anyNerdFont;
+	for (const auto& family: QFontDatabase::families()) {
+		if (!family.contains(QStringLiteral("Nerd Font"))) continue;
+		if (family.startsWith(QStringLiteral("Symbols Nerd Font"))) return family;
+		bool isNarrowVariant = family.contains(QStringLiteral("Mono")) || family.contains(QStringLiteral("Propo"));
+		if (anyNerdFont.isEmpty() && !isNarrowVariant) anyNerdFont = family;
+	}
+	return anyNerdFont;
+}
+
+void useIconFontForMissingSymbols() {
+	static bool registered = false;
+	if (registered) return;
+	registered = true;
+
+	auto iconFamily = installedIconFontFamily();
+	if (iconFamily.isEmpty()) return;
+	QFontDatabase::addApplicationFallbackFontFamily(QChar::Script_Unknown, iconFamily);
+	QFontDatabase::addApplicationFallbackFontFamily(QChar::Script_Common, iconFamily);
+}
+
 }
 
 void aliasGenericFontFamilies() {
+	useIconFontForMissingSymbols();
+
 	static const std::array<std::pair<const char*, const char*>, 6> genericFamilies {{
 	    {"Monospace", "Menlo"},
 	    {"monospace", "Menlo"},
