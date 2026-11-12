@@ -8,6 +8,7 @@ namespace qs::macos::compat {
 struct LinuxInstallRequest {
 	QStringList packages;
 	QStringList repositories;
+	QStringList installerScripts;
 	QStringList skippedCommands;
 	QStringList errors;
 	bool skipConfirmation = false;
@@ -19,6 +20,8 @@ QString homebrewNameFor(const QString& linuxPackage);
 QString quickshellConfigNameFor(const QString& linuxPackage);
 bool isCoveredByMacShell(const QString& linuxPackage);
 QString githubRepositoryFromWord(const QString& word);
+QStringList githubRepositoriesIn(const QString& text);
+QString configNameFromInstallerUrl(const QString& url);
 QStringList importedModuleUris(const QString& qmlSource);
 bool isBuiltinModuleUri(const QString& uri);
 qsizetype matchingModuleDepth(const QStringList& directoryComponents, const QStringList& uriComponents);

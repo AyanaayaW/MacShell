@@ -38,6 +38,7 @@ struct ResolvedPackage {
 	InstallAction action = InstallAction::Unavailable;
 	QString target;
 	QString configName;
+	bool optional = false;
 };
 
 void printLine(const QString& line) {
@@ -590,7 +591,7 @@ void installShellShortcuts(const QString& checkoutPath, const QString& entryConf
 	printLine(":: Added " + QString::number(binds.size()) + " of its keyboard shortcuts, active while it runs");
 }
 
-bool installQuickshellConfig(const QString& repositoryUrl, QString configName, const QString& homebrew) {
+bool installQuickshellConfig(const QString& repositoryUrl, QString configName, const QString& homebrew, bool optional) {
 	QTemporaryDir workspace;
 	if (!workspace.isValid()) {
 		printError(":: could not create a temporary folder");
@@ -606,6 +607,10 @@ bool installQuickshellConfig(const QString& repositoryUrl, QString configName, c
 
 	QString entryDirectory = findShellEntryDirectory(checkoutPath);
 	if (entryDirectory.isEmpty()) {
+		if (optional) {
+			printLine(":: " + repositoryUrl + " has no Quickshell config, skipped");
+			return true;
+		}
 		printError(":: " + repositoryUrl + " has no shell.qml, so it is not a Quickshell config and has no macOS install");
 		return false;
 	}
@@ -708,7 +713,25 @@ int runLinuxInstall(int argc, char** argv) {
 	for (const auto& skipped: request.skippedCommands) {
 		printLine(":: Skipping '" + skipped + "' (Linux-only step, not run on macOS)");
 	}
-	if (request.packages.isEmpty() && request.repositories.isEmpty()) {
+	QStringList discoveredRepositories;
+	QString installerConfigName;
+	for (const auto& script: request.installerScripts) {
+		printLine(":: Reading the installer at " + script + " (it is not run)");
+		QByteArray scriptText;
+		if (!runQuietly("/usr/bin/curl", {"-fsSL", "--max-time", "30", script}, &scriptText)) {
+			printError(":: could not download " + script);
+			continue;
+		}
+		for (const auto& repository: githubRepositoriesIn(QString::fromUtf8(scriptText))) {
+			if (!request.repositories.contains(repository) && !discoveredRepositories.contains(repository)) discoveredRepositories << repository;
+		}
+		if (installerConfigName.isEmpty()) installerConfigName = configNameFromInstallerUrl(script);
+	}
+	if (!request.installerScripts.isEmpty() && discoveredRepositories.isEmpty()) {
+		printLine(":: The installer does not download any Quickshell config from GitHub, so there is nothing to install");
+	}
+
+	if (request.packages.isEmpty() && request.repositories.isEmpty() && discoveredRepositories.isEmpty()) {
 		return request.errors.isEmpty() ? 0 : 1;
 	}
 
@@ -724,6 +747,7 @@ int runLinuxInstall(int argc, char** argv) {
 		printLine("   " + package.leftJustified(longestName + 2) + describe(resolvedPackages.last()));
 	}
 	for (const auto& repository: request.repositories) printLine("   Quickshell config from " + repository);
+	for (const auto& repository: discoveredRepositories) printLine("   Quickshell config, if it has one, from " + repository);
 
 	QStringList formulae;
 	QStringList casks;
@@ -736,6 +760,9 @@ int runLinuxInstall(int argc, char** argv) {
 		if (package.action == InstallAction::Unavailable) everythingResolved = false;
 	}
 	for (const auto& repository: request.repositories) repositories << ResolvedPackage {.action = InstallAction::SourceRepository, .target = repository};
+	for (const auto& repository: discoveredRepositories) {
+		repositories << ResolvedPackage {.action = InstallAction::SourceRepository, .target = repository, .configName = installerConfigName, .optional = true};
+	}
 
 	if (formulae.isEmpty() && casks.isEmpty() && repositories.isEmpty()) {
 		printLine(":: Nothing to install");
@@ -750,7 +777,7 @@ int runLinuxInstall(int argc, char** argv) {
 	if (!formulae.isEmpty()) allSucceeded &= runVisibly(homebrew, QStringList {"install", "--formula"} + formulae);
 	if (!casks.isEmpty()) allSucceeded &= runVisibly(homebrew, QStringList {"install", "--cask"} + casks);
 	for (const auto& repository: repositories) {
-		allSucceeded &= installQuickshellConfig(repository.target, repository.configName, homebrew);
+		allSucceeded &= installQuickshellConfig(repository.target, repository.configName, homebrew, repository.optional);
 	}
 	return allSucceeded ? 0 : 1;
 }

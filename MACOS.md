@@ -30,8 +30,9 @@ qs --install yay -S caelestia-shell
 qs --install "git clone https://github.com/someone/dots && cd dots && ./install.sh"
 ```
 
-`pacman`, `yay`, `paru`, `apt`, `dnf`, `zypper`, `git clone`, `curl ... | bash` installers hosted on GitHub and plain
-GitHub links are understood. Each package is matched to:
+`pacman`, `yay`, `paru`, `apt`, `dnf`, `zypper`, `git clone`, plain GitHub links and `curl` installers are understood.
+An installer script hosted anywhere (`curl ... | bash`, `bash <(curl ...)`) is downloaded and read, never run, and the
+GitHub repositories it fetches are installed when they contain a Quickshell config. Each package is matched to:
 
 | Linux package | On macOS |
 |---|---|

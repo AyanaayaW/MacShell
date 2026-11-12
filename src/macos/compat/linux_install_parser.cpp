@@ -192,9 +192,16 @@ void parseSegment(const QStringList& segment, LinuxInstallRequest& request) {
 			QString repository = githubRepositoryFromWord(word);
 			if (!repository.isEmpty()) request.repositories << repository;
 		}
-		if (request.repositories.size() == repositoriesBefore) {
-			request.skippedCommands << segment.mid(commandIndex).join(' ');
+		if (request.repositories.size() != repositoriesBefore) return;
+		static const QRegularExpression webAddress(R"pattern(https?://[^\s"'()<>|;]+)pattern");
+		bool foundInstallerScript = false;
+		for (const auto& word: segment) {
+			auto match = webAddress.match(word);
+			if (!match.hasMatch()) continue;
+			request.installerScripts << match.captured(0);
+			foundInstallerScript = true;
 		}
+		if (!foundInstallerScript) request.skippedCommands << segment.mid(commandIndex).join(' ');
 	}
 }
 
@@ -225,6 +232,7 @@ LinuxInstallRequest parseLinuxInstallCommand(const QStringList& words) {
 	parseSegment(segment, request);
 	request.packages.removeDuplicates();
 	request.repositories.removeDuplicates();
+	request.installerScripts.removeDuplicates();
 	return request;
 }
 
@@ -291,6 +299,22 @@ QString githubRepositoryFromWord(const QString& word) {
 	QString repository = match.captured(2);
 	if (repository.endsWith(".git")) repository.chop(4);
 	return "https://github.com/" + match.captured(1) + '/' + repository;
+}
+
+QStringList githubRepositoriesIn(const QString& text) {
+	static const QRegularExpression githubAddress(
+	    R"((?:https?://)?(?:raw\.githubusercontent\.com|github\.com)/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)"
+	);
+	QStringList repositories;
+	auto matches = githubAddress.globalMatch(text);
+	while (matches.hasNext()) repositories << githubRepositoryFromWord(matches.next().captured(0));
+	repositories.removeDuplicates();
+	return repositories;
+}
+
+QString configNameFromInstallerUrl(const QString& url) {
+	static const QRegularExpression hostName(R"(^https?://(?:www\.)?([A-Za-z0-9-]+))");
+	return hostName.match(url).captured(1).toLower();
 }
 
 QStringList importedModuleUris(const QString& qmlSource) {
@@ -422,7 +446,7 @@ QString bindLineFromChord(const QString& chord, const QString& dispatcher, const
 QStringList shortcutsFromLua(const QString& text) {
 	static const QRegularExpression luaString(R"pattern(^\s*local\s+(\w+)\s*=\s*"([^"]*)"\s*$)pattern", QRegularExpression::MultilineOption);
 	static const QRegularExpression luaBind(
-	    R"pattern(hl\.bind\(\s*(?:K\(\s*([^()]*?)\s*\)|("[^"]*"))\s*,\s*hl\.dsp\.(global|exec_cmd)\(\s*"([^"]*)"\s*\))pattern"
+	    R"pattern(hl\.bind\(\s*(?:K\(\s*([^()]*?)\s*\)|([^,()]+?))\s*,\s*hl\.dsp\.(global|exec_cmd)\(\s*"([^"]*)"\s*\))pattern"
 	);
 
 	QHash<QString, QString> luaStrings;

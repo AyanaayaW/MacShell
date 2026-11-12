@@ -135,6 +135,19 @@ private slots:
 		    QStringList({"bind = SUPER, A, global, caelestia:launcher", "bind = SUPER, D, exec, qs ipc call drawers toggle"})
 		);
 	}
+	static void installerScriptsOnOtherHostsAreRead() {
+		auto request = parseLinuxInstallCommand({"bash", "<(curl", "-s", "https://ml4w.com/os/stable)"});
+		QCOMPARE(request.installerScripts, QStringList({"https://ml4w.com/os/stable"}));
+		QVERIFY(request.skippedCommands.isEmpty());
+		QCOMPARE(
+		    githubRepositoriesIn("git clone https://github.com/someone/rice-installer.git \"$DIR\"\n"
+		                         "curl https://raw.githubusercontent.com/someone/dotfiles/main/rice.dotinst\n"),
+		    QStringList({"https://github.com/someone/rice-installer", "https://github.com/someone/dotfiles"})
+		);
+		QCOMPARE(configNameFromInstallerUrl("https://www.ml4w.com/os/stable"), QString("ml4w"));
+		QCOMPARE(shellShortcutBinds("local mainMod = \"SUPER\"\nhl.bind(mainMod .. \" + D\", hl.dsp.global(\"rice:menu\"))\n"),
+		         QStringList({"bind = SUPER, D, global, rice:menu"}));
+	}
 };
 
 QTEST_MAIN(TestLinuxInstallParser);
