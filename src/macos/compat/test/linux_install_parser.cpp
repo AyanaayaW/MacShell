@@ -112,6 +112,29 @@ private slots:
 		);
 		QVERIFY(linuxOnlyFeaturesIn("error: expected ';'").isEmpty());
 	}
+	static void shellShortcutsFromHyprlandConfigs() {
+		QCOMPARE(
+		    shellShortcutBinds(
+		        "local mod = \"SUPER\"\n"
+		        "hl.bind(K(mod .. \" + Space\"), hl.dsp.global(\"ryoku:launcher\")) -- open\n"
+		        "hl.bind(K(\"ALT + Space\"), hl.dsp.global(\"ryoku:ask\"))\n"
+		        "hl.bind(K(mod .. \" + SHIFT + G\"), hl.dsp.global(\"ryoku:gamebar\"), { dont_inhibit = true })\n"
+		        "hl.bind(K(mod .. \" + K\"), hl.dsp.exec_cmd(\"qs -c shell ipc call kit toggle\"))\n"
+		        "hl.bind(K(mod .. \" + E\"), hl.dsp.exec_cmd(\"ryoku-app files\"))\n"
+		        "hl.bind(K(mod .. \" + F\"), hl.dsp.window.fullscreen())\n"
+		    ),
+		    QStringList({
+		        "bind = SUPER, Space, global, ryoku:launcher",
+		        "bind = ALT, Space, global, ryoku:ask",
+		        "bind = SUPER SHIFT, G, global, ryoku:gamebar",
+		        "bind = SUPER, K, exec, qs -c shell ipc call kit toggle",
+		    })
+		);
+		QCOMPARE(
+		    shellShortcutBinds("$mod = SUPER\nbind = $mod, A, global, caelestia:launcher\nbind = $mod, T, exec, foot\nbindr = $mod, D, exec, qs ipc call drawers toggle\n"),
+		    QStringList({"bind = SUPER, A, global, caelestia:launcher", "bind = SUPER, D, exec, qs ipc call drawers toggle"})
+		);
+	}
 };
 
 QTEST_MAIN(TestLinuxInstallParser);

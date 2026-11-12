@@ -30,6 +30,7 @@
 #include "linux_files.hpp"
 #include "panel_window.hpp"
 #include "settings.hpp"
+#include "shader_repair.hpp"
 
 namespace {
 
@@ -90,6 +91,8 @@ class MacPlugin: public QsEnginePlugin {
 		if (configsRoot.cdUp()) generation.engine->addImportPath(configsRoot.absolutePath());
 		generation.engine->addImportPath(QDir::homePath() + "/Library/Application Support/MacShell/qml");
 		qs::macos::aliasConfigFontFamilies(generation.rootPath.absolutePath());
+		qs::macos::addMetalVersionsToShaders(generation.rootPath.absolutePath());
+		qs::hyprland::global_shortcuts::HotKeyRegistry::instance()->useConfigShortcuts(generation.rootPath.absolutePath());
 		qs::macos::startConfigCompanions(generation.rootPath.absolutePath());
 	}
 

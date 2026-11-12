@@ -15,6 +15,9 @@ services underneath. Nothing else needs installing.
 The `qs` and `quickshell` commands live inside the app at `MacShell.app/Contents/MacOS/`. Link them into your PATH, for
 example `ln -s /Applications/MacShell.app/Contents/MacOS/qs ~/.local/bin/qs`.
 
+Started from a terminal, a config runs in the background, so closing the terminal leaves it running. Use `qs log -f` to
+follow its output, `qs kill` to stop it, and `-F` (`--foreground`) to keep it attached to the terminal.
+
 QML plugins that are built for macOS go in `~/Library/Application Support/MacShell/qml`.
 
 ## Installing what a rice asks for
@@ -50,6 +53,10 @@ and Rust projects with `cargo`. They are installed to `~/.local/bin`. When the r
 starts it with the config, logs it to `~/Library/Logs/MacShell/<name>.log`, and stops it when the shell quits or dies.
 A program that fails to build because it relies on Linux-only system features (inotify, eventfd, netlink, ...) is
 reported by name, since it needs a macOS port.
+
+Keyboard shortcuts in the repository's Hyprland config that open parts of the shell (`global` binds and `qs ... ipc`
+commands, from `hyprland.conf` files or Lua configs) are saved to `.macshell-shortcuts` in the config folder and are
+active while that config runs, ahead of your own `hyprland.conf`.
 
 The plan is shown before anything installs. `--noconfirm` or `-y` skips the prompt. Linux-only steps such as
 `./install.sh` are listed and skipped, and an existing config folder is never overwritten. Wrap the command in quotes
@@ -157,6 +164,8 @@ Privacy & Security:
   which still records it for MacShell. Set `mirror_notifications=false` to turn mirroring off.
 - **Lock screens** verify passwords with macOS. Configs that use a Linux PAM folder with a plain `pam_unix` password
   check are verified against your macOS login; fingerprint and other Linux-only modules are refused.
+- **Shaders** that a config ships compiled without a Metal version are rebuilt from the `.frag` or `.vert` source next
+  to them when the config starts.
 - **Compiled QML plugins** that ship with a config are built for Linux and need a macOS build before they load.
 - **Not available:** Polkit and greetd, Wayland-only protocols such as foreign toplevel export, and moving windows
   between Spaces.

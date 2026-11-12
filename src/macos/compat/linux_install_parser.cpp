@@ -393,4 +393,88 @@ QStringList linuxOnlyFeaturesIn(const QString& buildOutput) {
 	return features;
 }
 
+namespace {
+
+bool isShellDispatch(const QString& dispatcher, const QString& argument) {
+	static const QRegularExpression quickshellCommand(R"(^(qs|quickshell)\s)");
+	return dispatcher == "global" || (dispatcher == "exec" && quickshellCommand.match(argument).hasMatch());
+}
+
+QString evaluateLuaConcatenation(const QString& expression, const QHash<QString, QString>& luaStrings) {
+	QString result;
+	for (const auto& part: expression.split("..")) {
+		QString token = part.trimmed();
+		if (token.size() >= 2 && token.startsWith('"') && token.endsWith('"')) result += token.mid(1, token.size() - 2);
+		else if (luaStrings.contains(token)) result += luaStrings.value(token);
+		else return {};
+	}
+	return result;
+}
+
+QString bindLineFromChord(const QString& chord, const QString& dispatcher, const QString& argument) {
+	QStringList parts = chord.split('+', Qt::SkipEmptyParts);
+	for (auto& part: parts) part = part.trimmed();
+	if (parts.isEmpty()) return {};
+	QString key = parts.takeLast();
+	return "bind = " + parts.join(' ') + ", " + key + ", " + dispatcher + ", " + argument;
+}
+
+QStringList shortcutsFromLua(const QString& text) {
+	static const QRegularExpression luaString(R"pattern(^\s*local\s+(\w+)\s*=\s*"([^"]*)"\s*$)pattern", QRegularExpression::MultilineOption);
+	static const QRegularExpression luaBind(
+	    R"pattern(hl\.bind\(\s*(?:K\(\s*([^()]*?)\s*\)|("[^"]*"))\s*,\s*hl\.dsp\.(global|exec_cmd)\(\s*"([^"]*)"\s*\))pattern"
+	);
+
+	QHash<QString, QString> luaStrings;
+	auto assignments = luaString.globalMatch(text);
+	while (assignments.hasNext()) {
+		auto assignment = assignments.next();
+		luaStrings.insert(assignment.captured(1), assignment.captured(2));
+	}
+
+	QStringList binds;
+	auto matches = luaBind.globalMatch(text);
+	while (matches.hasNext()) {
+		auto match = matches.next();
+		QString chord = evaluateLuaConcatenation(match.captured(1).isEmpty() ? match.captured(2) : match.captured(1), luaStrings);
+		QString dispatcher = match.captured(3) == "exec_cmd" ? "exec" : "global";
+		if (chord.isEmpty() || !isShellDispatch(dispatcher, match.captured(4))) continue;
+		binds << bindLineFromChord(chord, dispatcher, match.captured(4));
+	}
+	return binds;
+}
+
+QStringList shortcutsFromHyprlang(const QString& text) {
+	static const QRegularExpression variable(R"(^\s*\$(\w+)\s*=\s*(.*?)\s*$)");
+	static const QRegularExpression bind(R"(^\s*bind[a-z]*\s*=\s*(.*?)\s*$)");
+
+	QHash<QString, QString> variables;
+	QStringList binds;
+	for (const auto& line: text.split('\n')) {
+		if (auto match = variable.match(line); match.hasMatch()) {
+			variables.insert(match.captured(1), match.captured(2));
+			continue;
+		}
+		auto match = bind.match(line);
+		if (!match.hasMatch()) continue;
+		QString fields = match.captured(1);
+		for (const auto& [name, value]: variables.asKeyValueRange()) fields.replace('$' + name, value);
+		QStringList parts = fields.split(',');
+		if (parts.size() < 3) continue;
+		QString dispatcher = parts.at(2).trimmed();
+		QString argument = parts.mid(3).join(',').trimmed();
+		if (isShellDispatch(dispatcher, argument)) {
+			binds << "bind = " + parts.at(0).trimmed() + ", " + parts.at(1).trimmed() + ", " + dispatcher + ", " + argument;
+		}
+	}
+	return binds;
+}
+
+}
+
+QStringList shellShortcutBinds(const QString& hyprlandConfigText) {
+	return hyprlandConfigText.contains("hl.bind") ? shortcutsFromLua(hyprlandConfigText) : shortcutsFromHyprlang(hyprlandConfigText);
+}
+
+
 }

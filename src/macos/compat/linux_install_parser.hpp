@@ -27,5 +27,6 @@ QStringList cargoBinaryNames(const QString& cargoTomlText);
 bool mentionsProgram(const QString& text, const QString& programName);
 QString startCommandFor(const QString& programName, const QString& fileText);
 QStringList linuxOnlyFeaturesIn(const QString& buildOutput);
+QStringList shellShortcutBinds(const QString& hyprlandConfigText);
 
 }

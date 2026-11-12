@@ -1,3 +1,5 @@
+find_package(Qt6 REQUIRED COMPONENTS ShaderToolsPrivate)
+
 add_compile_options($<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
 
 qt_add_library(quickshell-macos STATIC
@@ -18,6 +20,7 @@ qt_add_library(quickshell-macos STATIC
 	input_region.mm
 	font_aliases.cpp
 	companions.cpp
+	shader_repair.cpp
 )
 
 qt_add_qml_module(quickshell-macos
@@ -32,7 +35,7 @@ install_qml_module(quickshell-macos)
 
 add_library(quickshell-macos-init OBJECT init.cpp)
 
-target_link_libraries(quickshell-macos PRIVATE Qt::Quick "-framework AppKit" "-framework IOKit" "-framework CoreGraphics" "-framework ApplicationServices" "-framework ScreenCaptureKit" "-framework CoreMedia" "-framework CoreVideo" "-framework ServiceManagement")
+target_link_libraries(quickshell-macos PRIVATE Qt::Quick Qt::GuiPrivate Qt::ShaderToolsPrivate "-framework AppKit" "-framework IOKit" "-framework CoreGraphics" "-framework ApplicationServices" "-framework ScreenCaptureKit" "-framework CoreMedia" "-framework CoreVideo" "-framework ServiceManagement")
 target_link_libraries(quickshell-macos-init PRIVATE Qt::Quick Qt::Qml)
 
 target_link_libraries(quickshell PRIVATE quickshell-macosplugin quickshell-macos-init "-framework AppKit")

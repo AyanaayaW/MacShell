@@ -696,7 +696,18 @@ int runCommand(int argc, char** argv) {
 		state.misc.daemonize = false;
 	}
 
-	if (state.misc.daemonize) return relaunchDetached(argc, argv);
+	bool launchesConfig = !state.misc.printVersion && !*state.subcommand.log && !*state.subcommand.list
+	                   && !*state.subcommand.kill && !*state.subcommand.msg && !*state.ipc.ipc;
+	bool startedFromTerminal = isatty(STDIN_FILENO) && isatty(STDOUT_FILENO);
+	if (launchesConfig && startedFromTerminal && !state.misc.foreground) state.misc.daemonize = true;
+
+	if (state.misc.daemonize) {
+		auto launchResult = relaunchDetached(argc, argv);
+		if (launchResult == 0 && startedFromTerminal) {
+			QTextStream(stdout) << "Running in the background. Logs: qs log -f, stop: qs kill\n";
+		}
+		return launchResult;
+	}
 #endif
 
 	// Has to happen before extra threads are spawned.

@@ -106,11 +106,17 @@ QString configHomeDirectory() {
 	return configHome.isEmpty() ? QDir::home().filePath(QStringLiteral(".config")) : configHome;
 }
 
+QString& configShortcutsFile() {
+	static QString path;
+	return path;
+}
+
 QStringList bindingFiles() {
-	return {
-	    QDir(configHomeDirectory()).filePath(QStringLiteral("hypr/hyprland.conf")),
-	    QDir(configHomeDirectory()).filePath(QStringLiteral("macshell/shortcuts.conf")),
-	};
+	QStringList files;
+	if (!configShortcutsFile().isEmpty()) files << configShortcutsFile();
+	files << QDir(configHomeDirectory()).filePath(QStringLiteral("macshell/shortcuts.conf"))
+	      << QDir(configHomeDirectory()).filePath(QStringLiteral("hypr/hyprland.conf"));
+	return files;
 }
 
 QString expandPath(QString path, const QString& relativeTo) {
@@ -361,6 +367,13 @@ HotKeyRegistry::HotKeyRegistry() {
 
 	QObject::connect(&this->mFileWatcher, &QFileSystemWatcher::fileChanged, this, &HotKeyRegistry::reloadBindings);
 	QObject::connect(&this->mFileWatcher, &QFileSystemWatcher::directoryChanged, this, &HotKeyRegistry::reloadBindings);
+	this->reloadBindings();
+}
+
+void HotKeyRegistry::useConfigShortcuts(const QString& configDirectory) {
+	auto path = QDir(configDirectory).filePath(QStringLiteral(".macshell-shortcuts"));
+	if (configShortcutsFile() == path) return;
+	configShortcutsFile() = path;
 	this->reloadBindings();
 }
 

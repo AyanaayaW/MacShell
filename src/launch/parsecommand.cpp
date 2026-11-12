@@ -144,6 +144,9 @@ int parseCommand(int argc, char** argv, CommandState& state) {
 
 		cli->add_flag("-d,--daemonize", state.misc.daemonize)
 		    ->description("Detach from the controlling terminal.");
+
+		cli->add_flag("-F,--foreground", state.misc.foreground)
+		    ->description("Stay attached to the terminal instead of running in the background.");
 	}
 
 	{

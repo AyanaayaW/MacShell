@@ -44,6 +44,7 @@ public:
 	[[nodiscard]] bool hasGlobalBinding(const QString& qualifiedName) const;
 
 	void handleHotKey(quint32 hotKeyId, bool pressed);
+	void useConfigShortcuts(const QString& configDirectory);
 
 signals:
 	void globalShortcutTriggered(const QString& qualifiedName, bool pressed);

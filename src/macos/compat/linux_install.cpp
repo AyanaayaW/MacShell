@@ -573,6 +573,23 @@ void installBackgroundPrograms(const QString& checkoutPath, const QString& confi
 	}
 }
 
+void installShellShortcuts(const QString& checkoutPath, const QString& entryConfigDirectory) {
+	QStringList binds;
+	QDirIterator iterator(checkoutPath, {"*.conf", "*.lua"}, QDir::Files, QDirIterator::Subdirectories);
+	while (iterator.hasNext()) {
+		QString path = iterator.next();
+		if (isIgnoredSourcePath(path) || !path.contains("/hypr")) continue;
+		binds << shellShortcutBinds(readText(path));
+	}
+	binds.removeDuplicates();
+	if (binds.isEmpty()) return;
+
+	QFile shortcuts(entryConfigDirectory + "/.macshell-shortcuts");
+	if (!shortcuts.open(QIODevice::WriteOnly | QIODevice::Truncate)) return;
+	shortcuts.write((binds.join('\n') + '\n').toUtf8());
+	printLine(":: Added " + QString::number(binds.size()) + " of its keyboard shortcuts, active while it runs");
+}
+
 bool installQuickshellConfig(const QString& repositoryUrl, QString configName, const QString& homebrew) {
 	QTemporaryDir workspace;
 	if (!workspace.isValid()) {
@@ -643,6 +660,7 @@ bool installQuickshellConfig(const QString& repositoryUrl, QString configName, c
 		installedConfigsText += concatenatedSources(source, {"*.qml", "*.js"});
 	}
 	installBackgroundPrograms(checkoutPath, installedConfigsText, configsRoot + '/' + configName, workspace.path());
+	installShellShortcuts(checkoutPath, configsRoot + '/' + configName);
 
 	printLine("   Start it with: qs -c " + configName);
 	return allSucceeded;

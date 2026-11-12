@@ -95,6 +95,7 @@ struct CommandState {
 		bool killAll = false;
 		bool noDuplicate = false;
 		bool daemonize = false;
+		bool foreground = false;
 	} misc;
 };
 
