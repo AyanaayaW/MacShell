@@ -1,5 +1,22 @@
 ## Development
 
+### Building on macOS
+
+```sh
+brew install qt cmake ninja pkg-config cli11
+cmake -GNinja -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_PREFIX_PATH="$(brew --prefix qt)" \
+  -DWAYLAND=OFF -DX11=OFF -DI3=OFF -DCRASH_HANDLER=OFF -DUSE_JEMALLOC=OFF -DNETWORK=OFF -DBLUETOOTH=OFF \
+  -DSERVICE_PIPEWIRE=OFF -DSERVICE_STATUS_NOTIFIER=OFF -DSERVICE_MPRIS=OFF -DSERVICE_POLKIT=OFF \
+  -DSERVICE_UPOWER=OFF -DSERVICE_GREETD=OFF
+cmake --build build
+./packaging/macos/bundle.sh
+```
+
+`build/src/quickshell` runs straight from the build folder. `bundle.sh` produces `dist/MacShell.app` and a disk image.
+See [MACOS.md](MACOS.md) for how MacShell behaves on macOS.
+
+### Building on Linux
+
 Install the dependencies listed in [BUILD.md](BUILD.md).
 You probably want all of them even if you don't use all of them
 to ensure tests work correctly and avoid passing a bunch of configure

@@ -20,7 +20,7 @@ To ensure nobody's time is wasted, please follow the rules below.
   code from any other works must disclose the source of the code, explain why it was used, and
   ensure the license is compatible.
 
-- Changes must follow the guidelines outlined in [HACKING.md](HACKING.md) for style and substance.
+- Changes must follow the guidelines outlined in [DEVELOPMENT.md](DEVELOPMENT.md) for style and substance.
 
 - Changes must stand on their own as a unit. Do not make multiple unrelated changes in one PR.
   Changes depending on prior merges should be marked as a draft.
