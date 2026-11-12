@@ -7,6 +7,7 @@ qt_add_library(quickshell-hyprland STATIC
 	hyprctl.mm
 	keyboard_layouts.mm
 	window_actions.mm
+	window_manager.cpp
 )
 
 qt_add_qml_module(quickshell-hyprland
@@ -21,6 +22,7 @@ install_qml_module(quickshell-hyprland)
 
 target_link_libraries(quickshell-hyprland PRIVATE
 	Qt::Quick
+	quickshell-windowmanager
 	Qt::Network
 	"-framework AppKit"
 	"-framework ApplicationServices"

@@ -23,6 +23,7 @@
 #include "hyprland/global_shortcuts.hpp"
 #include "hyprland/hyprctl.hpp"
 #include "hyprland/keyboard_layouts.hpp"
+#include "hyprland/window_manager.hpp"
 #include "font_aliases.hpp"
 #include "icons.hpp"
 #include "input_region.hpp"
@@ -49,6 +50,7 @@ class MacPlugin: public QsEnginePlugin {
 			return qs::macos::linuxPseudoFile(path);
 		});
 		QsQuickWindowBase::setPlatformInputRegionHandler(qs::macos::applyInputRegion);
+		qs::hyprland::macos::installSpacesWindowManager();
 		DesktopEntryManager::setPlatformEntryScanner([]() {
 			static std::once_flag watcherStarted;
 			std::call_once(watcherStarted, []() {

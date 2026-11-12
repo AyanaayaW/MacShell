@@ -16,7 +16,7 @@ void WindowManager::setProvider(std::function<WindowManager*()> provider) {
 }
 
 WindowManager* WindowManager::instance() {
-	static auto* instance = WindowManager::provider();
+	static auto* instance = WindowManager::provider ? WindowManager::provider() : new WindowManager();
 	return instance;
 }
 
