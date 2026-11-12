@@ -2,6 +2,7 @@
 
 #include "../background_reader.hpp"
 #include <qhash.h>
+#include <qlist.h>
 #include <qobject.h>
 #include <qproperty.h>
 #include <qqmlintegration.h>
@@ -50,6 +51,39 @@ struct MenuExtraInfo {
 	QString help;
 };
 
+struct MenuExtraEntryInfo {
+	QString text;
+	bool enabled = true;
+	bool isSeparator = false;
+	bool isChecked = false;
+	QList<MenuExtraEntryInfo> children;
+};
+
+class StatusNotifierItem;
+
+class MenuExtraMenuEntry: public qs::menu::QsMenuEntry {
+	Q_OBJECT;
+
+public:
+	MenuExtraMenuEntry(StatusNotifierItem* item, QList<qint32> path, QObject* parent);
+
+	void applyEntryInfo(const MenuExtraEntryInfo& info);
+
+	[[nodiscard]] bool isSeparator() const override { return this->mInfo.isSeparator; }
+	[[nodiscard]] bool enabled() const override { return this->mInfo.enabled; }
+	[[nodiscard]] QString text() const override { return this->mInfo.text; }
+	[[nodiscard]] qs::menu::QsMenuButtonType::Enum buttonType() const override;
+	[[nodiscard]] Qt::CheckState checkState() const override;
+	[[nodiscard]] bool hasChildren() const override { return !this->mInfo.children.isEmpty(); }
+	[[nodiscard]] ObjectModel<qs::menu::QsMenuEntry>* children() override { return &this->mChildren; }
+
+private:
+	StatusNotifierItem* mItem;
+	QList<qint32> mPath;
+	MenuExtraEntryInfo mInfo;
+	ObjectModel<qs::menu::QsMenuEntry> mChildren {this};
+};
+
 class StatusNotifierItem: public QObject {
 	Q_OBJECT;
 	Q_PROPERTY(QString id READ default NOTIFY idChanged BINDABLE bindableId);
@@ -66,7 +100,7 @@ class StatusNotifierItem: public QObject {
 	QML_UNCREATABLE("SystemTrayItems can only be acquired from SystemTray");
 
 public:
-	explicit StatusNotifierItem(QObject* parent): QObject(parent) {}
+	explicit StatusNotifierItem(QObject* parent);
 
 	void applyInfo(const MenuExtraInfo& info);
 
@@ -77,7 +111,10 @@ public:
 
 	[[nodiscard]] QString tooltipTitle() const { return this->mTooltipTitle; }
 	[[nodiscard]] QString tooltipDescription() const { return this->mTooltipDescription; }
-	[[nodiscard]] static qs::menu::QsMenuHandle* menuHandle() { return nullptr; }
+	[[nodiscard]] qs::menu::QsMenuHandle* menuHandle() { return this->mMenu; }
+
+	void loadMenu();
+	void triggerMenuEntry(const QList<qint32>& path);
 
 	[[nodiscard]] QBindable<QString> bindableId() { return &this->bId; }
 	[[nodiscard]] QBindable<QString> bindableTitle() { return &this->bTitle; }
@@ -100,6 +137,7 @@ signals:
 
 private:
 	MenuExtraInfo mInfo;
+	MenuExtraMenuEntry* mMenu;
 	QString mTooltipTitle;
 	QString mTooltipDescription;
 

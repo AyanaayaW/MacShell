@@ -13,6 +13,7 @@ target_link_libraries(quickshell-macos-compat PRIVATE
 	"-framework AppKit"
 	"-framework Carbon"
 	"-framework CoreGraphics"
+	"-framework CoreLocation"
 	"-framework CoreWLAN"
 	"-framework Network"
 	"-framework UniformTypeIdentifiers"

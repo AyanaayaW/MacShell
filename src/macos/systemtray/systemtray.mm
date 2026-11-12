@@ -4,6 +4,7 @@
 #include <qlogging.h>
 #include <qloggingcategory.h>
 #include <qobject.h>
+#include <qpointer.h>
 #include <qset.h>
 #include <qstring.h>
 
@@ -11,6 +12,8 @@
 
 #import <AppKit/AppKit.h>
 #import <ApplicationServices/ApplicationServices.h>
+
+#include <unistd.h>
 
 namespace qs::service::sni {
 
@@ -106,9 +109,172 @@ void performOnMenuExtra(const MenuExtraInfo& info, CFStringRef action) {
 	if (info.indexInApplication >= static_cast<qint32>(items.count)) return;
 
 	auto item = (__bridge AXUIElementRef)items[static_cast<NSUInteger>(info.indexInApplication)];
-	AXUIElementPerformAction(item, action);
+	if (AXUIElementPerformAction(item, action) != kAXErrorSuccess) {
+		AXUIElementPerformAction(item, kAXPressAction);
+	}
 }
 
+constexpr int MENU_OPEN_ATTEMPTS = 20;
+constexpr useconds_t MENU_OPEN_WAIT_MICROSECONDS = 25000;
+constexpr int MAXIMUM_SUBMENU_DEPTH = 3;
+constexpr float MENU_ACTION_TIMEOUT_SECONDS = 0.5F;
+
+dispatch_queue_t menuQueue() {
+	static dispatch_queue_t queue = dispatch_queue_create("MacShell.SystemTrayMenus", DISPATCH_QUEUE_SERIAL);
+	return queue;
+}
+
+id menuExtraElement(const MenuExtraInfo& info) {
+	NSArray* items = menuExtrasFor(info.processId);
+	if (info.indexInApplication >= static_cast<qint32>(items.count)) return nil;
+	return items[static_cast<NSUInteger>(info.indexInApplication)];
+}
+
+id attachedMenu(AXUIElementRef element) {
+	NSArray* children = copyAttribute(element, kAXChildrenAttribute);
+	for (id child in children) {
+		NSString* role = copyAttribute((__bridge AXUIElementRef)child, kAXRoleAttribute);
+		if ([role isEqualToString:(__bridge NSString*)kAXMenuRole]) return child;
+	}
+	return nil;
+}
+
+id pressAndWaitForMenu(AXUIElementRef element) {
+	AXUIElementSetMessagingTimeout(element, MENU_ACTION_TIMEOUT_SECONDS);
+	AXUIElementPerformAction(element, kAXPressAction);
+	for (int attempt = 0; attempt < MENU_OPEN_ATTEMPTS; ++attempt) {
+		if (id menu = attachedMenu(element)) return menu;
+		usleep(MENU_OPEN_WAIT_MICROSECONDS);
+	}
+	return nil;
+}
+
+NSArray* menuItemsOf(id menu) {
+	NSMutableArray* menuItems = [NSMutableArray array];
+	NSArray* children = copyAttribute((__bridge AXUIElementRef)menu, kAXChildrenAttribute);
+	for (id child in children) {
+		NSString* role = copyAttribute((__bridge AXUIElementRef)child, kAXRoleAttribute);
+		if ([role isEqualToString:(__bridge NSString*)kAXMenuItemRole]) [menuItems addObject:child];
+	}
+	return menuItems;
+}
+
+QList<MenuExtraEntryInfo> readMenuEntries(id menu, int depth) {
+	QList<MenuExtraEntryInfo> entries;
+	for (id itemObject in menuItemsOf(menu)) {
+		auto item = (__bridge AXUIElementRef)itemObject;
+		MenuExtraEntryInfo entry;
+		entry.text = stringAttribute(item, kAXTitleAttribute);
+		entry.isSeparator = entry.text.isEmpty();
+		NSNumber* enabled = copyAttribute(item, kAXEnabledAttribute);
+		entry.enabled = enabled == nil || enabled.boolValue;
+		entry.isChecked = !stringAttribute(item, kAXMenuItemMarkCharAttribute).isEmpty();
+		if (depth < MAXIMUM_SUBMENU_DEPTH) {
+			if (id submenu = attachedMenu(item)) entry.children = readMenuEntries(submenu, depth + 1);
+		}
+		entries.append(entry);
+	}
+	return entries;
+}
+
+void closeMenu(id menu) { AXUIElementPerformAction((__bridge AXUIElementRef)menu, kAXCancelAction); }
+
+void pressMenuEntry(id rootMenu, const QList<qint32>& path) {
+	id currentMenu = rootMenu;
+	for (qsizetype level = 0; level < path.size(); ++level) {
+		NSArray* items = menuItemsOf(currentMenu);
+		if (path.at(level) >= static_cast<qint32>(items.count)) break;
+		auto item = (__bridge AXUIElementRef)items[static_cast<NSUInteger>(path.at(level))];
+
+		if (level == path.size() - 1) {
+			AXUIElementPerformAction(item, kAXPressAction);
+			return;
+		}
+
+		id submenu = attachedMenu(item) ?: pressAndWaitForMenu(item);
+		if (!submenu) break;
+		currentMenu = submenu;
+	}
+	closeMenu(rootMenu);
+}
+
+}
+
+MenuExtraMenuEntry::MenuExtraMenuEntry(StatusNotifierItem* item, QList<qint32> path, QObject* parent)
+    : QsMenuEntry(parent)
+    , mItem(item)
+    , mPath(std::move(path)) {
+	if (this->mPath.isEmpty()) {
+		QObject::connect(this, &QsMenuEntry::opened, item, &StatusNotifierItem::loadMenu);
+	} else {
+		QObject::connect(this, &QsMenuEntry::triggered, item, [item, path = this->mPath] { item->triggerMenuEntry(path); });
+	}
+}
+
+qs::menu::QsMenuButtonType::Enum MenuExtraMenuEntry::buttonType() const {
+	return this->mInfo.isChecked ? qs::menu::QsMenuButtonType::CheckBox : qs::menu::QsMenuButtonType::None;
+}
+
+Qt::CheckState MenuExtraMenuEntry::checkState() const { return this->mInfo.isChecked ? Qt::Checked : Qt::Unchecked; }
+
+void MenuExtraMenuEntry::applyEntryInfo(const MenuExtraEntryInfo& info) {
+	this->mInfo = info;
+	emit this->isSeparatorChanged();
+	emit this->enabledChanged();
+	emit this->textChanged();
+	emit this->buttonTypeChanged();
+	emit this->checkStateChanged();
+	emit this->hasChildrenChanged();
+
+	const auto previousChildren = this->mChildren.valueList();
+	for (auto* child: previousChildren) {
+		this->mChildren.removeObject(child);
+		child->deleteLater();
+	}
+
+	for (qint32 index = 0; index < static_cast<qint32>(info.children.size()); ++index) {
+		auto* child = new MenuExtraMenuEntry(this->mItem, this->mPath + QList<qint32> {index}, this);
+		child->applyEntryInfo(info.children.at(index));
+		this->mChildren.insertObject(child);
+	}
+}
+
+StatusNotifierItem::StatusNotifierItem(QObject* parent)
+    : QObject(parent)
+    , mMenu(new MenuExtraMenuEntry(this, {}, this)) {}
+
+void StatusNotifierItem::loadMenu() {
+	if (!AXIsProcessTrusted()) return;
+	auto info = this->mInfo;
+	QPointer<StatusNotifierItem> guardedItem = this;
+
+	dispatch_async(menuQueue(), ^{
+		MenuExtraEntryInfo rootEntry;
+		@autoreleasepool {
+			id extra = menuExtraElement(info);
+			if (extra) {
+				if (id menu = pressAndWaitForMenu((__bridge AXUIElementRef)extra)) {
+					rootEntry.children = readMenuEntries(menu, 0);
+					closeMenu(menu);
+				}
+			}
+		}
+		QMetaObject::invokeMethod(SystemTrayHost::instance(), [guardedItem, rootEntry] {
+			if (guardedItem) guardedItem->mMenu->applyEntryInfo(rootEntry);
+		}, Qt::QueuedConnection);
+	});
+}
+
+void StatusNotifierItem::triggerMenuEntry(const QList<qint32>& path) {
+	auto info = this->mInfo;
+	QList<qint32> entryPath = path;
+	dispatch_async(menuQueue(), ^{
+		@autoreleasepool {
+			id extra = menuExtraElement(info);
+			if (!extra) return;
+			if (id menu = pressAndWaitForMenu((__bridge AXUIElementRef)extra)) pressMenuEntry(menu, entryPath);
+		}
+	});
 }
 
 void StatusNotifierItem::applyInfo(const MenuExtraInfo& info) {

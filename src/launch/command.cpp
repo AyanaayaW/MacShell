@@ -612,6 +612,9 @@ int launchFromCommand(CommandState& cmd) {
 } // namespace
 
 #ifdef __APPLE__
+extern "C" int responsibility_spawnattrs_setdisclaim(posix_spawnattr_t* attributes, int disclaim)
+    __attribute__((weak_import));
+
 namespace {
 
 int relaunchDetached(int argc, char** argv) {
@@ -642,6 +645,7 @@ int relaunchDetached(int argc, char** argv) {
 	posix_spawnattr_t attributes;
 	posix_spawnattr_init(&attributes);
 	posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETSID | POSIX_SPAWN_CLOEXEC_DEFAULT);
+	if (responsibility_spawnattrs_setdisclaim) responsibility_spawnattrs_setdisclaim(&attributes, 1);
 
 	posix_spawn_file_actions_t fileActions;
 	posix_spawn_file_actions_init(&fileActions);

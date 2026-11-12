@@ -16,6 +16,7 @@
 extern "C" {
 #import <CoreWLAN/CoreWLAN.h>
 }
+#import <CoreLocation/CoreLocation.h>
 #import <Foundation/Foundation.h>
 
 @interface MacShellNmcliMonitor: NSObject <CWEventDelegate>
@@ -608,6 +609,9 @@ int runMonitor() {
 
 int runNmcli(int argc, char** argv) {
 	@autoreleasepool {
+		CLLocationManager* locationAccess = [[CLLocationManager alloc] init];
+		[locationAccess authorizationStatus];
+
 		OutputOptions options;
 		std::vector<std::string_view> arguments;
 		for (int index = 1; index < argc; index++) {
