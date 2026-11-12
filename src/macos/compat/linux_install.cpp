@@ -291,8 +291,14 @@ void relinkAgainstBundledQt(const QString& moduleDirectory) {
 		QString library = iterator.next();
 		for (const auto& line: commandOutputLines("/usr/bin/otool", {"-L", library})) {
 			auto match = qtFrameworkReference.match(line);
-			if (match.hasMatch() && !match.captured(1).startsWith("@rpath/")) {
+			if (!match.hasMatch()) continue;
+			if (!match.captured(1).startsWith("@rpath/")) {
 				runQuietly("/usr/bin/install_name_tool", {"-change", match.captured(1), "@rpath/" + match.captured(2), library});
+			}
+			QString framework = match.captured(2).section('/', 0, 0);
+			QString bundledFrameworks = QCoreApplication::applicationDirPath() + "/../Frameworks/";
+			if (QFileInfo::exists(QCoreApplication::applicationDirPath() + "/../Frameworks") && !QFileInfo::exists(bundledFrameworks + framework)) {
+				printLine("   " + QFileInfo(library).fileName() + " needs " + framework + ", which this MacShell build does not include");
 			}
 		}
 		for (const auto& line: commandOutputLines("/usr/bin/otool", {"-l", library})) {

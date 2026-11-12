@@ -22,5 +22,13 @@ import QtMultimedia
 import QtTest
 import QtPositioning
 import QtQuick.Controls.FluentWinUI3
+import QtQuick.Timeline
+import QtQuick3D
+import QtQuick3D.Helpers
+import QtQuick3D.Effects
+import QtQuick3D.Particles3D
+import QtWebSockets
+import QtCharts
+import QtGraphs
 
 Item {}
