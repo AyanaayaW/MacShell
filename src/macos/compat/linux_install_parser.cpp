@@ -321,4 +321,76 @@ qsizetype matchingModuleDepth(const QStringList& directoryComponents, const QStr
 	return depth;
 }
 
+QString goBinaryName(const QString& goModText) {
+	static const QRegularExpression moduleLine(R"(^\s*module\s+(\S+))", QRegularExpression::MultilineOption);
+	return moduleLine.match(goModText).captured(1).section('/', -1);
+}
+
+QStringList cargoBinaryNames(const QString& cargoTomlText) {
+	static const QRegularExpression sectionHeader(R"(^\s*\[+([^\]]+)\]+\s*$)");
+	static const QRegularExpression nameEntry(R"pattern(^\s*name\s*=\s*"([^"]+)")pattern");
+	QStringList names;
+	QString currentSection;
+	for (const auto& line: cargoTomlText.split('\n')) {
+		auto header = sectionHeader.match(line);
+		if (header.hasMatch()) {
+			currentSection = header.captured(1).trimmed();
+			continue;
+		}
+		auto name = nameEntry.match(line);
+		if (name.hasMatch() && (currentSection == "package" || currentSection == "bin")) names << name.captured(1);
+	}
+	names.removeDuplicates();
+	return names;
+}
+
+bool mentionsProgram(const QString& text, const QString& programName) {
+	QRegularExpression invocation("[\"'`/\\s]" + QRegularExpression::escape(programName) + "[\"'`\\s]");
+	return invocation.match(text).hasMatch();
+}
+
+QString startCommandFor(const QString& programName, const QString& fileText) {
+	static const QRegularExpression startLine(R"(^\s*(?:ExecStart\s*=|exec-once\s*=|exec\s+)\s*(.+?)\s*$)",
+	                                          QRegularExpression::MultilineOption);
+	auto lines = startLine.globalMatch(fileText);
+	while (lines.hasNext()) {
+		QString command = lines.next().captured(1);
+		QStringList words = command.split(' ', Qt::SkipEmptyParts);
+		while (!words.isEmpty() && (words.first().startsWith('-') || words.first().startsWith('@'))) words.removeFirst();
+		if (words.isEmpty()) continue;
+		QString executable = words.first().section('/', -1);
+		if (executable != programName) continue;
+		words[0] = programName;
+		return words.join(' ');
+	}
+	return {};
+}
+
+QStringList linuxOnlyFeaturesIn(const QString& buildOutput) {
+	static const QList<std::pair<QString, QString>> markers {
+	    {"inotify", "inotify (file watching)"},
+	    {"eventfd", "eventfd"},
+	    {"epoll", "epoll"},
+	    {"netlink", "netlink (device events)"},
+	    {"pidfd", "pidfd"},
+	    {"clock_boottime", "CLOCK_BOOTTIME"},
+	    {"signalfd", "signalfd"},
+	    {"timerfd", "timerfd"},
+	    {"memfd", "memfd"},
+	    {"peercred", "SO_PEERCRED"},
+	    {"ucred", "ucred"},
+	    {"prctl", "prctl"},
+	    {"/proc/", "/proc"},
+	    {"os::linux", "Linux-only standard library APIs"},
+	    {"wayland", "Wayland"},
+	    {"dbus", "D-Bus"},
+	};
+	QString lowered = buildOutput.toLower();
+	QStringList features;
+	for (const auto& [needle, label]: markers) {
+		if (lowered.contains(needle)) features << label;
+	}
+	return features;
+}
+
 }

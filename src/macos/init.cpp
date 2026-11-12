@@ -19,6 +19,7 @@
 #include "../window/proxywindow.hpp"
 #include "applications.hpp"
 #include "cocoa.hpp"
+#include "companions.hpp"
 #include "hyprland/global_shortcuts.hpp"
 #include "hyprland/hyprctl.hpp"
 #include "hyprland/keyboard_layouts.hpp"
@@ -87,6 +88,7 @@ class MacPlugin: public QsEnginePlugin {
 		if (configsRoot.cdUp()) generation.engine->addImportPath(configsRoot.absolutePath());
 		generation.engine->addImportPath(QDir::homePath() + "/Library/Application Support/MacShell/qml");
 		qs::macos::aliasConfigFontFamilies(generation.rootPath.absolutePath());
+		qs::macos::startConfigCompanions(generation.rootPath.absolutePath());
 	}
 
 	void registerTypes() override {

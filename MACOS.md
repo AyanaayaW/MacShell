@@ -44,6 +44,13 @@ import path. QML modules it imports from elsewhere in the repository are copied 
 `~/Library/Application Support/MacShell/qml`, and modules declared in a CMake project are built against Homebrew Qt
 (`cmake` and `ninja` required) and relinked to MacShell's own Qt.
 
+Background programs in the repository that the config calls by name are built for macOS too: Go projects with `go`
+and Rust projects with `cargo`. They are installed to `~/.local/bin`. When the repository's systemd unit or
+`exec-once` line says how to start one, that command is saved to `.macshell-companions` in the config folder; MacShell
+starts it with the config, logs it to `~/Library/Logs/MacShell/<name>.log`, and stops it when the shell quits or dies.
+A program that fails to build because it relies on Linux-only system features (inotify, eventfd, netlink, ...) is
+reported by name, since it needs a macOS port.
+
 The plan is shown before anything installs. `--noconfirm` or `-y` skips the prompt. Linux-only steps such as
 `./install.sh` are listed and skipped, and an existing config folder is never overwritten. Wrap the command in quotes
 when it contains `&&` or `;`.

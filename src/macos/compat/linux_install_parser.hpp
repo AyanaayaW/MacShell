@@ -22,5 +22,10 @@ QString githubRepositoryFromWord(const QString& word);
 QStringList importedModuleUris(const QString& qmlSource);
 bool isBuiltinModuleUri(const QString& uri);
 qsizetype matchingModuleDepth(const QStringList& directoryComponents, const QStringList& uriComponents);
+QString goBinaryName(const QString& goModText);
+QStringList cargoBinaryNames(const QString& cargoTomlText);
+bool mentionsProgram(const QString& text, const QString& programName);
+QString startCommandFor(const QString& programName, const QString& fileText);
+QStringList linuxOnlyFeaturesIn(const QString& buildOutput);
 
 }

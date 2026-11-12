@@ -17,6 +17,7 @@ qt_add_library(quickshell-macos STATIC
 	linux_files.mm
 	input_region.mm
 	font_aliases.cpp
+	companions.cpp
 )
 
 qt_add_qml_module(quickshell-macos

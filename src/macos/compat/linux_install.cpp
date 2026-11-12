@@ -248,7 +248,8 @@ QString macShellModuleRoot() { return QDir::homePath() + "/Library/Application S
 QString findTool(const QString& name) {
 	QString onPath = QStandardPaths::findExecutable(name);
 	if (!onPath.isEmpty()) return onPath;
-	for (const auto& prefix: {QStringLiteral("/opt/homebrew/bin/"), QStringLiteral("/usr/local/bin/")}) {
+	for (const auto& prefix: {QStringLiteral("/opt/homebrew/bin/"), QStringLiteral("/usr/local/bin/"),
+	                          QDir::homePath() + "/.cargo/bin/", QStringLiteral("/usr/local/go/bin/")}) {
 		if (QFileInfo(prefix + name).isExecutable()) return prefix + name;
 	}
 	return {};
@@ -402,6 +403,170 @@ bool installModulesFor(const QStringList& uris, const QString& checkoutPath, con
 	return allInstalled;
 }
 
+struct BackgroundProgram {
+	QString name;
+	QString projectDirectory;
+	bool isRust = false;
+};
+
+bool isIgnoredSourcePath(const QString& path) {
+	return path.contains("/.git/") || path.contains("/target/") || path.contains("/vendor/") || path.contains("/node_modules/");
+}
+
+QString concatenatedSources(const QString& directory, const QStringList& patterns) {
+	QString text;
+	QDirIterator iterator(directory, patterns, QDir::Files, QDirIterator::Subdirectories);
+	while (iterator.hasNext()) {
+		QString path = iterator.next();
+		if (!isIgnoredSourcePath(path)) text += readText(path) + '\n';
+	}
+	return text;
+}
+
+bool hasGoMainPackage(const QString& directory) {
+	static const QRegularExpression mainPackage(R"(^\s*package\s+main\b)", QRegularExpression::MultilineOption);
+	QDirIterator iterator(directory, {"*.go"}, QDir::Files);
+	while (iterator.hasNext()) {
+		if (mainPackage.match(readText(iterator.next())).hasMatch()) return true;
+	}
+	return false;
+}
+
+QList<BackgroundProgram> findBackgroundPrograms(const QString& checkoutPath, const QString& configText) {
+	QList<BackgroundProgram> programs;
+	QDirIterator iterator(checkoutPath, {"go.mod", "Cargo.toml"}, QDir::Files, QDirIterator::Subdirectories);
+	while (iterator.hasNext()) {
+		QString manifestPath = iterator.next();
+		if (isIgnoredSourcePath(manifestPath)) continue;
+		QString projectDirectory = QFileInfo(manifestPath).absolutePath();
+		bool isRust = manifestPath.endsWith("Cargo.toml");
+		QStringList names = isRust ? cargoBinaryNames(readText(manifestPath)) : QStringList {goBinaryName(readText(manifestPath))};
+		if (!isRust && !hasGoMainPackage(projectDirectory)) continue;
+		for (const auto& name: names) {
+			if (!name.isEmpty() && mentionsProgram(configText, name)) programs << BackgroundProgram {name, projectDirectory, isRust};
+		}
+	}
+	return programs;
+}
+
+bool launchesQuickshellItself(const QString& projectDirectory) {
+	static const QRegularExpression quickshellLaunch(R"pattern("(qs|quickshell)")pattern");
+	return quickshellLaunch.match(concatenatedSources(projectDirectory, {"*.go", "*.rs"})).hasMatch();
+}
+
+QString findStartCommand(const QString& checkoutPath, const QString& programName) {
+	QDirIterator iterator(checkoutPath, {"*.service", "*.conf", "*.lua", "*.sh"}, QDir::Files, QDirIterator::Subdirectories);
+	while (iterator.hasNext()) {
+		QString path = iterator.next();
+		if (isIgnoredSourcePath(path)) continue;
+		QString command = startCommandFor(programName, readText(path));
+		if (!command.isEmpty()) return command;
+	}
+	return {};
+}
+
+bool runBuild(const QString& program, const QStringList& arguments, const QString& directory,
+              const QProcessEnvironment& environment, QString* output) {
+	QProcess process;
+	process.setProcessChannelMode(QProcess::MergedChannels);
+	process.setWorkingDirectory(directory);
+	process.setProcessEnvironment(environment);
+	process.start(program, arguments);
+	bool finished = process.waitForFinished(-1);
+	*output = QString::fromUtf8(process.readAll());
+	return finished && process.exitStatus() == QProcess::NormalExit && process.exitCode() == 0;
+}
+
+QString buildBackgroundProgram(const BackgroundProgram& program, const QString& workspacePath) {
+	QString toolName = program.isRust ? "cargo" : "go";
+	QString tool = findTool(toolName);
+	if (tool.isEmpty()) {
+		printLine("   " + program.name + " needs " + (program.isRust ? "Rust" : "Go") + " to build: qs --install sudo pacman -S "
+		          + (program.isRust ? "rust" : "go"));
+		return {};
+	}
+
+	printLine(":: Building background program " + program.name);
+	QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+	QString output;
+	QString builtBinary;
+	bool built = false;
+	if (program.isRust) {
+		environment.insert("CARGO_TARGET_DIR", workspacePath + "/cargo-target");
+		built = runBuild(tool, {"build", "--release", "--bin", program.name}, program.projectDirectory, environment, &output);
+		builtBinary = workspacePath + "/cargo-target/release/" + program.name;
+	} else {
+		builtBinary = workspacePath + "/go-bin/" + program.name;
+		built = runBuild(tool, {"build", "-o", builtBinary, "."}, program.projectDirectory, environment, &output);
+	}
+
+	if (built && QFileInfo(builtBinary).isExecutable()) return builtBinary;
+
+	QStringList features = linuxOnlyFeaturesIn(output);
+	if (!features.isEmpty()) {
+		printLine("   " + program.name + " uses Linux-only system features (" + features.join(", ") + ") and needs a macOS port");
+	} else {
+		printLine("   " + program.name + " failed to build:");
+		for (const auto& line: output.split('\n', Qt::SkipEmptyParts).mid(-8)) printLine("     " + line);
+	}
+	return {};
+}
+
+QString installedProgramsRecord() { return QDir::homePath() + "/Library/Application Support/MacShell/installed-programs"; }
+
+bool installProgramBinary(const QString& builtBinary, const QString& programName) {
+	QString binDirectory = QDir::homePath() + "/.local/bin";
+	QString destination = binDirectory + '/' + programName;
+	QStringList ownedPrograms = readText(installedProgramsRecord()).split('\n', Qt::SkipEmptyParts);
+	if (QFileInfo::exists(destination) && !ownedPrograms.contains(programName)) {
+		printLine("   " + destination + " already exists and was not installed by MacShell, keeping it");
+		return false;
+	}
+
+	QDir().mkpath(binDirectory);
+	QFile::remove(destination);
+	if (!QFile::copy(builtBinary, destination)) {
+		printError(":: could not install " + destination);
+		return false;
+	}
+	QFile::setPermissions(destination, QFile::permissions(destination) | QFileDevice::ExeOwner | QFileDevice::ExeUser);
+
+	if (!ownedPrograms.contains(programName)) {
+		QDir().mkpath(QFileInfo(installedProgramsRecord()).absolutePath());
+		QFile record(installedProgramsRecord());
+		if (record.open(QIODevice::Append)) record.write((programName + '\n').toUtf8());
+	}
+	printLine("   Installed " + programName + " to " + destination);
+	return true;
+}
+
+void registerCompanion(const QString& configDirectory, const QString& command) {
+	QString companionsPath = configDirectory + "/.macshell-companions";
+	if (readText(companionsPath).split('\n').contains(command)) return;
+	QFile companions(companionsPath);
+	if (companions.open(QIODevice::Append)) companions.write((command + '\n').toUtf8());
+}
+
+void installBackgroundPrograms(const QString& checkoutPath, const QString& configText, const QString& entryConfigDirectory,
+                               const QString& workspacePath) {
+	auto programs = findBackgroundPrograms(checkoutPath, configText);
+	for (const auto& program: programs) {
+		QString builtBinary = buildBackgroundProgram(program, workspacePath);
+		if (builtBinary.isEmpty() || !installProgramBinary(builtBinary, program.name)) continue;
+
+		QString startCommand = findStartCommand(checkoutPath, program.name);
+		if (launchesQuickshellItself(program.projectDirectory)) {
+			printLine("   " + program.name + " starts the shell itself; launch the setup with: "
+			          + (startCommand.isEmpty() ? program.name : startCommand));
+		} else if (!startCommand.isEmpty()) {
+			registerCompanion(entryConfigDirectory, startCommand);
+			printLine("   " + program.name + " will start and stop together with the shell");
+		} else {
+			printLine("   " + program.name + " is run by the shell when it needs it");
+		}
+	}
+}
+
 bool installQuickshellConfig(const QString& repositoryUrl, QString configName, const QString& homebrew) {
 	QTemporaryDir workspace;
 	if (!workspace.isValid()) {
@@ -465,6 +630,13 @@ bool installQuickshellConfig(const QString& repositoryUrl, QString configName, c
 		printLine(":: Installing the QML modules it imports");
 		allSucceeded &= installModulesFor(importedUris, checkoutPath, workspace.path(), homebrew);
 	}
+
+	QString installedConfigsText;
+	for (const auto& folder: configFolders) {
+		QString source = folder == entryFolderName ? entryDirectory : entryParent.filePath(folder);
+		installedConfigsText += concatenatedSources(source, {"*.qml", "*.js"});
+	}
+	installBackgroundPrograms(checkoutPath, installedConfigsText, configsRoot + '/' + configName, workspace.path());
 
 	printLine("   Start it with: qs -c " + configName);
 	return allSucceeded;

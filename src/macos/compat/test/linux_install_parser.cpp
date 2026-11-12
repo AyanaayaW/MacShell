@@ -88,6 +88,30 @@ private slots:
 		QCOMPARE(matchingModuleDepth({"repo", "ryoku", "ui"}, {"Ryoku", "Ui"}), qsizetype(1));
 		QCOMPARE(matchingModuleDepth({"build", "qml", "Ryoku", "Blobs"}, {"Ryoku", "Blobs"}), qsizetype(2));
 	}
+
+	static void backgroundProgramDetection() {
+		QCOMPARE(goBinaryName("module github.com/someone/ryoku-shell\n\ngo 1.26\n"), QString("ryoku-shell"));
+		QCOMPARE(
+		    cargoBinaryNames("[package]\nname = \"rice-daemon\"\n[dependencies]\nname = \"ignored\"\n[[bin]]\nname = \"rice-ctl\"\n"),
+		    QStringList({"rice-daemon", "rice-ctl"})
+		);
+		QVERIFY(mentionsProgram("Process { command: [\"rice-daemon\", \"--watch\"] }", "rice-daemon"));
+		QVERIFY(!mentionsProgram("property string riceDaemonPath", "rice-daemon"));
+	}
+
+	static void startCommandsFromLinuxConfigs() {
+		QCOMPARE(startCommandFor("rice-daemon", "[Service]\nExecStart=/usr/bin/rice-daemon --serve\n"), QString("rice-daemon --serve"));
+		QCOMPARE(startCommandFor("rice-daemon", "exec-once = rice-daemon\nexec-once = waybar\n"), QString("rice-daemon"));
+		QVERIFY(startCommandFor("rice-daemon", "exec-once = waybar\n").isEmpty());
+	}
+
+	static void linuxFeaturesNamedFromBuildErrors() {
+		QCOMPARE(
+		    linuxOnlyFeaturesIn("./watch.go:12: undefined: unix.InotifyInit\n./wake.go:3: undefined: unix.Eventfd\n"),
+		    QStringList({"inotify (file watching)", "eventfd"})
+		);
+		QVERIFY(linuxOnlyFeaturesIn("error: expected ';'").isEmpty());
+	}
 };
 
 QTEST_MAIN(TestLinuxInstallParser);
