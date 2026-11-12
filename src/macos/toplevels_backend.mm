@@ -59,12 +59,20 @@ QHash<quint32, AccessibleWindow> accessibleWindowsFor(qint32 processId) {
 	AXUIElementRef application = AXUIElementCreateApplication(processId);
 	AXUIElementSetMessagingTimeout(application, ACCESSIBILITY_TIMEOUT_SECONDS);
 
+	NSMutableArray* candidates = [NSMutableArray array];
 	NSArray* elements = copyAttribute(application, kAXWindowsAttribute);
-	for (id elementObject in elements) {
+	if (elements) [candidates addObjectsFromArray:elements];
+	id mainWindow = copyAttribute(application, kAXMainWindowAttribute);
+	if (mainWindow) [candidates addObject:mainWindow];
+	id focusedWindow = copyAttribute(application, kAXFocusedWindowAttribute);
+	if (focusedWindow) [candidates addObject:focusedWindow];
+
+	for (id elementObject in candidates) {
 		auto element = (__bridge AXUIElementRef)elementObject;
 
 		CGWindowID windowId = 0;
 		if (_AXUIElementGetWindow(element, &windowId) != kAXErrorSuccess || windowId == 0) continue;
+		if (windows.contains(windowId)) continue;
 
 		NSString* title = copyAttribute(element, kAXTitleAttribute);
 		windows.insert(windowId, AccessibleWindow {
@@ -178,10 +186,13 @@ QList<NativeWindow> readNativeWindows() {
 }
 
 quint32 focusedWindowId() {
+	pid_t ownProcessId = NSProcessInfo.processInfo.processIdentifier;
 	NSRunningApplication* frontmost = NSWorkspace.sharedWorkspace.frontmostApplication;
-	if (!frontmost) return 0;
+	bool frontmostIsRegular = frontmost
+	                       && frontmost.processIdentifier != ownProcessId
+	                       && frontmost.activationPolicy == NSApplicationActivationPolicyRegular;
 
-	if (hasAccessibilityAccess()) {
+	if (frontmostIsRegular && hasAccessibilityAccess()) {
 		AXUIElementRef application = AXUIElementCreateApplication(frontmost.processIdentifier);
 		AXUIElementSetMessagingTimeout(application, ACCESSIBILITY_TIMEOUT_SECONDS);
 		id focusedWindow = copyAttribute(application, kAXFocusedWindowAttribute);
@@ -190,6 +201,15 @@ quint32 focusedWindowId() {
 		CGWindowID windowId = 0;
 		if (focusedWindow && _AXUIElementGetWindow((__bridge AXUIElementRef)focusedWindow, &windowId) == kAXErrorSuccess) {
 			return windowId;
+		}
+	}
+
+	NSMutableSet<NSNumber*>* regularProcessIds = [NSMutableSet set];
+	for (NSRunningApplication* application in NSWorkspace.sharedWorkspace.runningApplications) {
+		if (application.processIdentifier != ownProcessId
+		    && application.activationPolicy == NSApplicationActivationPolicyRegular)
+		{
+			[regularProcessIds addObject:@(application.processIdentifier)];
 		}
 	}
 
@@ -202,7 +222,12 @@ quint32 focusedWindowId() {
 	quint32 windowId = 0;
 	for (NSDictionary* window in (__bridge NSArray*)rawWindows) {
 		if ([window[(__bridge NSString*)kCGWindowLayer] intValue] != 0) continue;
-		if ([window[(__bridge NSString*)kCGWindowOwnerPID] intValue] != frontmost.processIdentifier) continue;
+		NSNumber* ownerProcessId = window[(__bridge NSString*)kCGWindowOwnerPID];
+		if (frontmostIsRegular) {
+			if (ownerProcessId.intValue != frontmost.processIdentifier) continue;
+		} else {
+			if (![regularProcessIds containsObject:ownerProcessId]) continue;
+		}
 		windowId = [window[(__bridge NSString*)kCGWindowNumber] unsignedIntValue];
 		break;
 	}

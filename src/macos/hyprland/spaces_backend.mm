@@ -5,6 +5,7 @@
 #include <memory>
 
 #include <qtimer.h>
+#include <qfile.h>
 #include <qprocess.h>
 #include <qset.h>
 #include <qstring.h>
@@ -265,7 +266,20 @@ QList<WindowDescription> readWindows() {
 }
 
 quint32 frontmostWindowId() {
-	auto frontmostProcessId = NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier;
+	pid_t ownProcessId = NSProcessInfo.processInfo.processIdentifier;
+	NSRunningApplication* frontmost = NSWorkspace.sharedWorkspace.frontmostApplication;
+	bool frontmostIsRegular = frontmost
+	                       && frontmost.processIdentifier != ownProcessId
+	                       && frontmost.activationPolicy == NSApplicationActivationPolicyRegular;
+
+	NSMutableSet<NSNumber*>* regularProcessIds = [NSMutableSet set];
+	for (NSRunningApplication* application in NSWorkspace.sharedWorkspace.runningApplications) {
+		if (application.processIdentifier != ownProcessId
+		    && application.activationPolicy == NSApplicationActivationPolicyRegular)
+		{
+			[regularProcessIds addObject:@(application.processIdentifier)];
+		}
+	}
 
 	CFArrayRef rawWindows = CGWindowListCopyWindowInfo(
 	    kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
@@ -276,7 +290,12 @@ quint32 frontmostWindowId() {
 	quint32 windowId = 0;
 	for (NSDictionary* window in (__bridge NSArray*)rawWindows) {
 		if ([window[(__bridge NSString*)kCGWindowLayer] intValue] != 0) continue;
-		if ([window[(__bridge NSString*)kCGWindowOwnerPID] intValue] != frontmostProcessId) continue;
+		NSNumber* ownerProcessId = window[(__bridge NSString*)kCGWindowOwnerPID];
+		if (frontmostIsRegular) {
+			if (ownerProcessId.intValue != frontmost.processIdentifier) continue;
+		} else {
+			if (![regularProcessIds containsObject:ownerProcessId]) continue;
+		}
 
 		windowId = [window[(__bridge NSString*)kCGWindowNumber] unsignedIntValue];
 		break;

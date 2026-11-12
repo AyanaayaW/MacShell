@@ -1,7 +1,9 @@
 #include "cocoa.hpp"
 
+#include <algorithm>
 #include <array>
 #include <dlfcn.h>
+#include <notify.h>
 
 #import <AppKit/AppKit.h>
 #import <CoreGraphics/CoreGraphics.h>
@@ -14,6 +16,7 @@ constexpr int BACKGROUND_LAYER = 0;
 constexpr int BOTTOM_LAYER = 1;
 constexpr int TOP_LAYER = 2;
 
+constexpr int BACKGROUND_SPACE_ABSOLUTE_LEVEL = 0;
 constexpr int OVERLAY_SPACE_ABSOLUTE_LEVEL = 100;
 constexpr int ALL_SPACES_MASK = 7;
 
@@ -24,6 +27,7 @@ struct SkyLightSpaceApi {
 	void (*showSpaces)(int, CFArrayRef) = nullptr;
 	void (*addWindows)(int, uint64_t, CFArrayRef, int) = nullptr;
 	void (*removeWindows)(int, CFArrayRef, CFArrayRef) = nullptr;
+	int (*setWindowBackgroundBlurRadius)(int, uint32_t, uint32_t) = nullptr;
 
 	[[nodiscard]] bool available() const {
 		return mainConnection && createSpace && setAbsoluteLevel && showSpaces && addWindows && removeWindows;
@@ -45,9 +49,25 @@ const SkyLightSpaceApi& skyLightSpaces() {
 		);
 		loaded.removeWindows =
 		    reinterpret_cast<void (*)(int, CFArrayRef, CFArrayRef)>(dlsym(skyLight, "SLSRemoveWindowsFromSpaces"));
+		loaded.setWindowBackgroundBlurRadius =
+		    reinterpret_cast<int (*)(int, uint32_t, uint32_t)>(dlsym(skyLight, "SLSSetWindowBackgroundBlurRadius"));
 		return loaded;
 	}();
 	return api;
+}
+
+uint64_t backgroundSpace() {
+	static const uint64_t space = [] -> uint64_t {
+		const auto& api = skyLightSpaces();
+		if (!api.available()) return 0;
+		auto connection = api.mainConnection();
+		auto createdSpace = api.createSpace(connection, 1, nullptr);
+		if (createdSpace == 0) return 0;
+		api.setAbsoluteLevel(connection, createdSpace, BACKGROUND_SPACE_ABSOLUTE_LEVEL);
+		api.showSpaces(connection, (__bridge CFArrayRef) @[@(createdSpace)]);
+		return createdSpace;
+	}();
+	return space;
 }
 
 uint64_t overlaySpace() {
@@ -64,17 +84,15 @@ uint64_t overlaySpace() {
 	return space;
 }
 
-void placeInOverlaySpace(NSWindow* window, bool inOverlay) {
+void placeInManagedSpace(NSWindow* window, int layer) {
 	const auto& api = skyLightSpaces();
-	auto space = overlaySpace();
-	if (space == 0 || window.windowNumber <= 0) return;
+	if (!api.available() || window.windowNumber <= 0) return;
+
+	auto space = layer >= TOP_LAYER ? overlaySpace() : backgroundSpace();
+	if (space == 0) return;
 
 	NSArray* windowNumbers = @[@(window.windowNumber)];
-	if (inOverlay) {
-		api.addWindows(api.mainConnection(), space, (__bridge CFArrayRef)windowNumbers, ALL_SPACES_MASK);
-	} else {
-		api.removeWindows(api.mainConnection(), (__bridge CFArrayRef)windowNumbers, (__bridge CFArrayRef) @[@(space)]);
-	}
+	api.addWindows(api.mainConnection(), space, (__bridge CFArrayRef)windowNumbers, ALL_SPACES_MASK);
 }
 
 NSWindow* windowForHandle(WId viewHandle) {
@@ -97,6 +115,17 @@ void configurePanel(WId viewHandle, int layer) {
 	NSWindow* window = windowForHandle(viewHandle);
 	if (!window) return;
 
+	window.styleMask &= ~NSWindowStyleMaskResizable;
+	window.movable = NO;
+	window.movableByWindowBackground = NO;
+	window.acceptsMouseMovedEvents = YES;
+	if ([window isKindOfClass:[NSPanel class]]) {
+		NSPanel* panel = static_cast<NSPanel*>(window);
+		panel.styleMask |= NSWindowStyleMaskNonactivatingPanel;
+		panel.floatingPanel = YES;
+		panel.becomesKeyOnlyIfNeeded = YES;
+		panel.worksWhenModal = YES;
+	}
 	window.level = windowLevelForLayer(layer);
 	window.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces
 	                          | NSWindowCollectionBehaviorStationary
@@ -105,15 +134,46 @@ void configurePanel(WId viewHandle, int layer) {
 	window.hasShadow = NO;
 	window.hidesOnDeactivate = NO;
 	window.opaque = NO;
-	placeInOverlaySpace(window, layer >= TOP_LAYER);
+	window.backgroundColor = [NSColor clearColor];
+	placeInManagedSpace(window, layer);
+	if (layer > BACKGROUND_LAYER) {
+		setWindowBlur(viewHandle, 30);
+	}
+}
+
+void setWindowBlur(WId viewHandle, int radius) {
+	NSWindow* window = windowForHandle(viewHandle);
+	if (!window || window.windowNumber <= 0) return;
+	const auto& api = skyLightSpaces();
+	if (api.setWindowBackgroundBlurRadius && api.mainConnection) {
+		api.setWindowBackgroundBlurRadius(api.mainConnection(), static_cast<uint32_t>(window.windowNumber), static_cast<uint32_t>(radius));
+	}
 }
 
 void focusPanel(WId viewHandle) {
 	NSWindow* window = windowForHandle(viewHandle);
 	if (!window) return;
 
-	[NSApp activateIgnoringOtherApps:YES];
+	if ([window isKindOfClass:[NSPanel class]]) {
+		NSPanel* panel = static_cast<NSPanel*>(window);
+		panel.styleMask |= NSWindowStyleMaskNonactivatingPanel;
+		panel.becomesKeyOnlyIfNeeded = NO;
+	}
 	[window makeKeyAndOrderFront:nil];
+}
+
+void unfocusPanel(WId viewHandle) {
+	NSWindow* window = windowForHandle(viewHandle);
+	if (!window) return;
+
+	if ([window isKindOfClass:[NSPanel class]]) {
+		NSPanel* panel = static_cast<NSPanel*>(window);
+		panel.styleMask |= NSWindowStyleMaskNonactivatingPanel;
+		panel.becomesKeyOnlyIfNeeded = YES;
+	}
+	if (window.isKeyWindow) {
+		[window resignKeyWindow];
+	}
 }
 
 namespace {
@@ -149,6 +209,9 @@ void configureLockWindow(WId viewHandle) {
 	window.hasShadow = NO;
 	window.hidesOnDeactivate = NO;
 	window.styleMask = NSWindowStyleMaskBorderless;
+	window.opaque = NO;
+	window.backgroundColor = [NSColor clearColor];
+	setWindowBlur(viewHandle, 50);
 	if (window.screen) [window setFrame:window.screen.frame display:YES];
 	[window makeKeyAndOrderFront:nil];
 }
@@ -329,6 +392,30 @@ struct ManagedPreference {
 	id hiddenValue;
 };
 
+struct SkyLightMenuBarApi {
+	int (*mainConnection)() = nullptr;
+	int (*setMenuBarSystemOverrideAlpha)(int, uint64_t, double) = nullptr;
+	int (*setMenuBarInsetAndAlpha)(int, double, double, float) = nullptr;
+	int (*resetMenuBarSystemOverrideAlphas)(int) = nullptr;
+};
+
+const SkyLightMenuBarApi& skyLightMenuBar() {
+	static const SkyLightMenuBarApi api = [] {
+		SkyLightMenuBarApi loaded;
+		void* skyLight = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY);
+		if (!skyLight) return loaded;
+		loaded.mainConnection = reinterpret_cast<int (*)()>(dlsym(skyLight, "SLSMainConnectionID"));
+		loaded.setMenuBarSystemOverrideAlpha =
+		    reinterpret_cast<int (*)(int, uint64_t, double)>(dlsym(skyLight, "SLSSetMenuBarSystemOverrideAlpha"));
+		loaded.setMenuBarInsetAndAlpha =
+		    reinterpret_cast<int (*)(int, double, double, float)>(dlsym(skyLight, "SLSSetMenuBarInsetAndAlpha"));
+		loaded.resetMenuBarSystemOverrideAlphas =
+		    reinterpret_cast<int (*)(int)>(dlsym(skyLight, "SLSResetMenuBarSystemOverrideAlphas"));
+		return loaded;
+	}();
+	return api;
+}
+
 const std::array<ManagedPreference, 3>& managedPreferences() {
 	static const std::array<ManagedPreference, 3> preferences {{
 	    {CFSTR("com.apple.dock"), CFSTR("autohide"), @YES},
@@ -339,6 +426,82 @@ const std::array<ManagedPreference, 3>& managedPreferences() {
 }
 
 bool systemUiHidden = false;
+int menuBarLockPostCount = 0;
+id applicationActivationObserver = nil;
+id activeSpaceChangeObserver = nil;
+
+void suppressMenuBarReveal() {
+	const auto& menuBarApi = skyLightMenuBar();
+	if (menuBarApi.mainConnection) {
+		int connection = menuBarApi.mainConnection();
+		if (menuBarApi.setMenuBarSystemOverrideAlpha) {
+			menuBarApi.setMenuBarSystemOverrideAlpha(connection, 0, 0.0);
+		}
+	}
+
+	[[NSDistributedNotificationCenter defaultCenter]
+	    postNotificationName:@"com.apple.HIToolbox.hideFrontMenuBar"
+	                  object:nil];
+	notify_post("com.apple.hitoolbox.menubar.position.lock");
+	++menuBarLockPostCount;
+}
+
+void scheduleMenuBarSuppression() {
+	suppressMenuBarReveal();
+	dispatch_after(
+	    dispatch_time(DISPATCH_TIME_NOW, static_cast<int64_t>(50 * NSEC_PER_MSEC)),
+	    dispatch_get_main_queue(),
+	    ^{
+		    if (systemUiHidden) suppressMenuBarReveal();
+	    }
+	);
+}
+
+void startMenuBarSuppression() {
+	scheduleMenuBarSuppression();
+	NSNotificationCenter* workspaceCenter = NSWorkspace.sharedWorkspace.notificationCenter;
+	if (!applicationActivationObserver) {
+		applicationActivationObserver = [workspaceCenter
+		    addObserverForName:NSWorkspaceDidActivateApplicationNotification
+		                object:nil
+		                 queue:NSOperationQueue.mainQueue
+		            usingBlock:^(NSNotification*) {
+			            if (systemUiHidden) scheduleMenuBarSuppression();
+		            }];
+	}
+	if (!activeSpaceChangeObserver) {
+		activeSpaceChangeObserver = [workspaceCenter
+		    addObserverForName:NSWorkspaceActiveSpaceDidChangeNotification
+		                object:nil
+		                 queue:NSOperationQueue.mainQueue
+		            usingBlock:^(NSNotification*) {
+			            if (systemUiHidden) scheduleMenuBarSuppression();
+		            }];
+	}
+}
+
+void stopMenuBarSuppression() {
+	NSNotificationCenter* workspaceCenter = NSWorkspace.sharedWorkspace.notificationCenter;
+	if (applicationActivationObserver) {
+		[workspaceCenter removeObserver:applicationActivationObserver];
+		applicationActivationObserver = nil;
+	}
+	if (activeSpaceChangeObserver) {
+		[workspaceCenter removeObserver:activeSpaceChangeObserver];
+		activeSpaceChangeObserver = nil;
+	}
+
+	int unlockIterations = std::max(menuBarLockPostCount, 4);
+	for (int index = 0; index < unlockIterations; ++index) {
+		notify_post("com.apple.hitoolbox.menubar.position.unlock");
+	}
+	menuBarLockPostCount = 0;
+
+	const auto& menuBarApi = skyLightMenuBar();
+	if (menuBarApi.mainConnection && menuBarApi.resetMenuBarSystemOverrideAlphas) {
+		menuBarApi.resetMenuBarSystemOverrideAlphas(menuBarApi.mainConnection());
+	}
+}
 
 NSString* backupFilePath() {
 	NSString* directory = [NSHomeDirectory()
@@ -376,6 +539,8 @@ void applyPreferenceChanges() {
 }
 
 void restoreSystemUi() {
+	stopMenuBarSuppression();
+
 	NSString* path = backupFilePath();
 	NSDictionary* backup = [NSDictionary dictionaryWithContentsOfFile:path];
 	if (!backup) return;
@@ -411,6 +576,7 @@ void hideSystemUi() {
 
 	applyPreferenceChanges();
 	systemUiHidden = true;
+	startMenuBarSuppression();
 }
 
 }

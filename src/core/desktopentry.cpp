@@ -16,6 +16,7 @@
 #include <qproperty.h>
 #include <qscopeguard.h>
 #include <qtenvironmentvariables.h>
+#include <qthread.h>
 #include <qthreadpool.h>
 #include <qtmetamacros.h>
 #include <ranges>
@@ -366,12 +367,16 @@ void DesktopEntryScanner::run() {
 		this->scanDirectory(QDir(path), QString(), scanResults);
 	}
 
-	QMetaObject::invokeMethod(
-	    this->manager,
-	    "onScanCompleted",
-	    Qt::QueuedConnection,
-	    Q_ARG(QList<ParsedDesktopEntryData>, scanResults)
-	);
+	if (QThread::currentThread() == this->manager->thread()) {
+		this->manager->onScanCompleted(scanResults);
+	} else {
+		QMetaObject::invokeMethod(
+		    this->manager,
+		    "onScanCompleted",
+		    Qt::QueuedConnection,
+		    Q_ARG(QList<ParsedDesktopEntryData>, scanResults)
+		);
+	}
 }
 
 void DesktopEntryScanner::scanDirectory(
@@ -445,6 +450,7 @@ DesktopEntryManager::PlatformEntryScanner& mutablePlatformEntryScanner() {
 
 void DesktopEntryManager::setPlatformEntryScanner(PlatformEntryScanner scanner) {
 	mutablePlatformEntryScanner() = std::move(scanner);
+	DesktopEntryScanner(DesktopEntryManager::instance()).run();
 }
 
 const DesktopEntryManager::PlatformEntryScanner& DesktopEntryManager::platformEntryScanner() {

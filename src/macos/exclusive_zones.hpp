@@ -28,10 +28,14 @@ private:
 	ExclusiveZoneEnforcer();
 
 	void enforce();
+	void startDragTap();
+	void stopDragTap();
 	static void enforceReservations(const QList<ScreenReservation>& reservations, pid_t ownProcessId);
 
 	QList<ScreenReservation> mReservations;
 	QTimer mEnforceTimer;
+	void* mEventTap = nullptr;
+	void* mRunLoopSource = nullptr;
 	bool mRequestedAccessibility = false;
 };
 

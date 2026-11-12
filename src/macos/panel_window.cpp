@@ -313,7 +313,10 @@ void MacPanelWindow::updateDimensions(bool propagate) {
 	qCDebug(logPanelGeometry) << "panel" << this->window << "set to" << geometry << "anchors top" << anchors.mTop
 	                          << "bottom" << anchors.mBottom << "screen" << screenGeometry;
 	this->mAnchoredGeometry = geometry;
+	this->window->setMinimumSize(geometry.size());
+	this->window->setMaximumSize(geometry.size());
 	this->window->setGeometry(geometry);
+	this->applyCocoa();
 	this->updateStrut(propagate);
 }
 
@@ -322,16 +325,20 @@ void MacPanelWindow::restoreAnchoredGeometry() {
 	if (this->window->geometry() == this->mAnchoredGeometry) return;
 	qCDebug(logPanelGeometry) << "panel" << this->window << "moved by the system to" << this->window->geometry()
 	                          << "; restoring" << this->mAnchoredGeometry;
+	this->window->setMinimumSize(this->mAnchoredGeometry.size());
+	this->window->setMaximumSize(this->mAnchoredGeometry.size());
 	this->window->setGeometry(this->mAnchoredGeometry);
+	this->applyCocoa();
 }
 
 void MacPanelWindow::updatePanelStack() {
 	if (this->window->isVisible()) {
-		if (this->bKeyboardFocus == qs::wayland::layershell::WlrKeyboardFocus::Exclusive) {
+		if (this->focusable()) {
 			qs::macos::focusPanel(this->window->winId());
 		}
 		MacPanelStack::instance()->addPanel(this);
 	} else {
+		qs::macos::unfocusPanel(this->window->winId());
 		MacPanelStack::instance()->removePanel(this);
 	}
 }
@@ -354,10 +361,11 @@ void MacPanelWindow::updateKeyboardFocus() {
 	this->window->setFlag(Qt::WindowDoesNotAcceptFocus, !this->focusable());
 	this->applyCocoa();
 
-	if (this->bKeyboardFocus == qs::wayland::layershell::WlrKeyboardFocus::Exclusive
-	    && this->window->isVisible())
-	{
+	if (!this->window->isVisible()) return;
+	if (this->focusable()) {
 		qs::macos::focusPanel(this->window->winId());
+	} else {
+		qs::macos::unfocusPanel(this->window->winId());
 	}
 }
 

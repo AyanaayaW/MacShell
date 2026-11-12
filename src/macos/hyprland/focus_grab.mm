@@ -6,6 +6,7 @@
 #include <qquickwindow.h>
 #include <qwindow.h>
 
+#include "../cocoa.hpp"
 #include "../../window/proxywindow.hpp"
 #include "../../window/windowinterface.hpp"
 
@@ -97,8 +98,10 @@ void HyprlandFocusGrab::startMonitoring() {
 
 	auto windows = this->grabbedWindows();
 	if (!windows.isEmpty() && windows.first()->handle()) {
-		[NSApp activateIgnoringOtherApps:YES];
-		windows.first()->requestActivate();
+		auto* firstWindow = windows.first();
+		if (!firstWindow->flags().testFlag(Qt::WindowDoesNotAcceptFocus)) {
+			qs::macos::focusPanel(firstWindow->winId());
+		}
 	}
 }
 
@@ -110,6 +113,11 @@ void HyprlandFocusGrab::stopMonitoring() {
 	if (this->localMonitor) {
 		[NSEvent removeMonitor:(__bridge_transfer id)this->localMonitor];
 		this->localMonitor = nullptr;
+	}
+	for (auto* window: this->grabbedWindows()) {
+		if (window && window->handle() && window->flags().testFlag(Qt::WindowDoesNotAcceptFocus)) {
+			qs::macos::unfocusPanel(window->winId());
+		}
 	}
 }
 
